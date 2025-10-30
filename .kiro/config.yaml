@@ -1,0 +1,41 @@
+# cc-sdd Configuration for beast-agent
+
+project:
+  name: beast-agent
+  description: Base agent class for all Beast Mode agents
+  tier: 1
+  category: Foundation
+
+specs:
+  directory: .kiro/specs
+  templates: .kiro/settings/templates/specs
+  rules: .kiro/settings/rules
+
+workflow:
+  enabled: true
+  commands:
+    - spec-init
+    - spec-requirements
+    - spec-design
+    - spec-tasks
+    - spec-impl
+    - spec-status
+    - validate-gap
+    - validate-design
+
+quality:
+  coverage_target: 90
+  maintainability: A
+  security: A
+  reliability: A
+
+dependencies:
+  upstream:
+    - beast-mailbox-core: ">=0.3.0"
+  downstream:
+    - beast-agentic-framework
+    - beast-nim-integration
+    - beast-adk-integration
+    - beast-adapter-aws
+    - beast-adapter-gcp
+
