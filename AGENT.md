@@ -17,6 +17,36 @@ This is **Tier 1** in the Beast Mode dependency graph - every other agent packag
 
 ## 📋 Before You Start
 
+### Using Spec-Driven Development (cc-sdd)
+
+**📋 How to Access Specs:**
+
+This repository uses **cc-sdd** (Cursor Commands for Spec-Driven Development), not an MCP server.
+
+**Method 1: Direct File Reading** (Always Available)
+```
+Use read_file tool to access specs:
+- .kiro/specs/requirements.md - Functional and non-functional requirements
+- .kiro/specs/design.md - Architecture and design decisions
+- .kiro/specs/tasks.md - Implementation task breakdown
+- .kiro/specs/QUALITY_STANDARDS_TEMPLATE.md - Quality metrics
+- .kiro/specs/SONARCLOUD_INTEGRATION_GUIDE.md - CI/CD integration
+```
+
+**Method 2: Cursor Commands** (For Spec-Driven Workflows)
+```
+/kiro:spec-init <feature> - Initialize new feature spec
+/kiro:spec-requirements <feature> - Create requirements document
+/kiro:spec-design <feature> -y - Create design document
+/kiro:spec-tasks <feature> -y - Create task breakdown
+/kiro:spec-impl <feature> 1.1,1.2 - Implement specific tasks
+/kiro:validate-gap <feature> - Analyze gaps vs requirements
+/kiro:validate-design <feature> - Validate design integration
+/kiro:spec-status <feature> - Check feature status
+```
+
+**No MCP Server Required**: Specs are regular files accessed via standard tools. The `/kiro:` commands are Cursor IDE commands configured in this repository's `.kiro/` directory.
+
 ### Required Reading (In Order)
 
 1. **`.kiro/specs/requirements.md`** - What this package must do (FR-1 to FR-8, NFR-1 to NFR-5)
