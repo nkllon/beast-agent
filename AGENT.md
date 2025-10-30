@@ -21,9 +21,19 @@ This is **Tier 1** in the Beast Mode dependency graph - every other agent packag
 
 **📋 How to Access Specs:**
 
-This repository uses **cc-sdd** (Cursor Commands for Spec-Driven Development), not an MCP server.
+**Current State (v0.1.0)**: Single-agent development
+- Direct file reading with `read_file` tool
+- `/kiro:` Cursor commands for workflows
 
-**Method 1: Direct File Reading** (Always Available)
+**Future State (Multi-Agent Clusters)**: MCP server integration
+- `beast-spec-mcp` server provides centralized spec access
+- All cluster agents reference SAME authoritative specs
+- Real-time spec updates propagate cluster-wide
+- **This is critical infrastructure** - coming soon!
+
+---
+
+**Method 1: Direct File Reading** (Current - Always Available)
 ```
 Use read_file tool to access specs:
 - .kiro/specs/requirements.md - Functional and non-functional requirements
@@ -33,7 +43,19 @@ Use read_file tool to access specs:
 - .kiro/specs/SONARCLOUD_INTEGRATION_GUIDE.md - CI/CD integration
 ```
 
-**Method 2: Cursor Commands** (For Spec-Driven Workflows)
+**Method 2: MCP Server** (Future - Multi-Agent Clusters)
+```
+When beast-spec-mcp is deployed, use MCP tools:
+- get_requirements - Read requirements.md
+- get_design - Read design.md
+- get_tasks - Read tasks.md
+- get_requirement - Get specific requirement (FR-001)
+- search_specs - Search across all specs
+- validate_implementation - Check code vs requirements
+... (11+ tools total)
+```
+
+**Method 3: Cursor Commands** (For Authoring Workflows)
 ```
 /kiro:spec-init <feature> - Initialize new feature spec
 /kiro:spec-requirements <feature> - Create requirements document
@@ -45,7 +67,7 @@ Use read_file tool to access specs:
 /kiro:spec-status <feature> - Check feature status
 ```
 
-**No MCP Server Required**: Specs are regular files accessed via standard tools. The `/kiro:` commands are Cursor IDE commands configured in this repository's `.kiro/` directory.
+**Why MCP Matters**: In Beast Mode multi-agent clusters, all LLMs must reference the SAME spec framework. Direct file reading creates inconsistency. MCP provides centralized, authoritative spec access with real-time updates.
 
 ### Required Reading (In Order)
 
@@ -421,6 +443,94 @@ export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
 4. **Document changes** - update README and specs
 5. **Run quality checks** - all must pass
 6. **Commit with descriptive messages** - use conventional commits
+
+### Coordinating with External LLMs (PR-Based Workflow)
+
+**When You Need External Help**: For complex features, architectural decisions, or tasks requiring different perspectives (e.g., Master Planner, Codex, Claude Projects).
+
+**The Reality**: External LLMs are **stateless** and **security-constrained**:
+- ❌ Cannot write directly to repositories
+- ❌ Cannot push files without review gates
+- ❌ Cannot bypass branch protection
+- ✅ **CAN create pull requests** (only mechanism)
+
+**How to Request External LLM Assistance:**
+
+**Step 1: Create Outbound Prompt**
+```bash
+# Create request in prompts/outbound/
+cat > prompts/outbound/$(date +%Y%m%d_%H%M%S)_<agent>-<topic>.md <<EOF
+# Request to <Agent>: <Topic>
+
+## Context
+[Provide all necessary context]
+
+## What We Need
+[Specific deliverables]
+
+## Response Delivery Instructions (PR-Based)
+
+**CRITICAL**: You are stateless and security-constrained. Follow these EXACT instructions:
+
+### Repository Information
+- **Repository**: nkllon/beast-agent
+- **Target Branch**: main
+- **Your Agent ID**: <agent-id>
+
+### Step 1: Create Branch
+- **Exact branch name**: codex/<agent-id>-<topic>
+
+### Step 2: Add Response File
+- **Exact file path**: prompts/inbound/$(date +%Y%m%d_%H%M%S)_<agent-id>-<topic>.md
+- Include machine-parseable headers (see below)
+
+### Step 3: Create Pull Request
+- **Exact PR title**: prompt-response: <topic>
+- **Target branch**: main
+- **Repository**: nkllon/beast-agent
+
+### Required Response Headers
+\`\`\`markdown
+Requirements: [FR-001, FR-002, ...]
+Components: [component1, component2, ...]
+Artifacts:
+  - code: <path or URL>
+  - docs: <path>
+Next:
+  - [ ] Follow-up action 1
+  - [ ] Follow-up action 2
+\`\`\`
+EOF
+```
+
+**Step 2: External Agent Creates PR**
+- External agent creates branch: `codex/<agent>-<topic>`
+- Adds response file: `prompts/inbound/YYYYMMDD_HHMMSS_<agent>-<topic>.md`
+- Creates PR with title: `prompt-response: <topic>`
+
+**Step 3: Review and Process**
+- Review PR contents
+- Merge if acceptable
+- Process response: validate, implement, or iterate
+
+**Example Use Cases:**
+- Strategic planning (Master Planner)
+- Cross-project architecture reviews
+- Research tasks spanning multiple contexts
+- Complex feature design requiring different perspective
+
+**Directory Structure:**
+```
+prompts/
+├── outbound/     # Requests to external agents
+├── inbound/      # Responses via PR
+├── processed/    # Validated and accepted responses
+└── latent/       # Deferred or ignored items
+```
+
+**See Also**: OpenFlow-Playground `prompts/WORKFLOW.md` for complete protocol.
+
+---
 
 ### Commit Message Format
 
