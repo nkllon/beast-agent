@@ -495,6 +495,7 @@ class NIMAgent(BaseAgent):
 | Separate types module | Clean separation of concerns | One extra import for users |
 | Metadata-based capabilities | Enables introspection and discovery | Requires decorator usage |
 | Commented TODOs for mailbox | Allows independent testing of BaseAgent | Mailbox integration deferred to v0.2.0 |
+| **Pydantic dependency** | Type-safe validation for messages/config; consistency across ecosystem; better DX with clear errors; automatic JSON serialization | Adds dependency (violates strict minimal deps) but justified for foundation package |
 
 ---
 

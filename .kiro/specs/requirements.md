@@ -90,11 +90,32 @@
 ## 🔒 Non-Functional Requirements
 
 ### NFR-1: Minimal Dependencies
-- **Must** depend ONLY on beast-mailbox-core
-- **Must** use stdlib for everything else
-- **Should** make beast-observability optional
+**Principle**: Minimize dependencies to reduce footprint, avoid conflicts, and maintain flexibility for downstream packages.
+
+**Required Dependencies**:
+- **Must** depend on beast-mailbox-core (messaging and discovery)
+- **Must** depend on pydantic (type-safe validation and serialization)
+
+**Additional Dependencies Policy**:
+- **Must** use stdlib for everything else unless justified
+- **Must** document rationale for any additional dependency
+- **Must** ensure each dependency provides clear value that can't be achieved with stdlib
+- **Should** make beast-observability optional (not required)
 - **Must** not depend on any cloud provider SDKs
 - **Must** be platform-agnostic
+
+**Rationale for Pydantic**:
+- Provides type-safe validation for messages (FR-3) and configuration (FR-8)
+- Ensures consistency across Beast Mode ecosystem (foundation package)
+- Better developer experience with clear error messages
+- Automatic JSON serialization/deserialization for message handling
+- Type coercion and validation reduces runtime errors
+
+**Dependency Criteria**: Additional dependencies beyond beast-mailbox-core and pydantic must:
+1. Address a specific functional requirement (FR-1 through FR-8)
+2. Provide capabilities not achievable with stdlib alone
+3. Have documented rationale in design decisions log
+4. Maintain platform-agnostic and minimal footprint principles
 
 ### NFR-2: Performance
 - **Must** handle message dispatch <10ms overhead

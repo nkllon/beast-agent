@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Dict
+from typing import Any, Dict
 
 
 class AgentState(Enum):
@@ -26,5 +26,5 @@ class HealthStatus:
     last_heartbeat: datetime
     message_queue_size: int
     error_count: int
-    metadata: Dict[str, any]
+    metadata: Dict[str, Any]
 

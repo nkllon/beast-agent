@@ -21,53 +21,34 @@ This is **Tier 1** in the Beast Mode dependency graph - every other agent packag
 
 **📋 How to Access Specs:**
 
-**Current State (v0.1.0)**: Single-agent development
-- Direct file reading with `read_file` tool
-- `/kiro:` Cursor commands for workflows
+**Method 1: Direct File Reading** (Always Available)
 
-**Future State (Multi-Agent Clusters)**: MCP server integration
-- `beast-spec-mcp` server provides centralized spec access
-- All cluster agents reference SAME authoritative specs
-- Real-time spec updates propagate cluster-wide
-- **This is critical infrastructure** - coming soon!
+Use `read_file` tool to access specs directly:
+- `.kiro/specs/requirements.md` - Functional and non-functional requirements
+- `.kiro/specs/design.md` - Architecture and design decisions
+- `.kiro/specs/tasks.md` - Implementation task breakdown
+- `.kiro/specs/QUALITY_STANDARDS_TEMPLATE.md` - Quality metrics
+- `.kiro/specs/SONARCLOUD_INTEGRATION_GUIDE.md` - CI/CD integration
 
----
+**Method 2: Cursor Commands** (cc-sdd Workflow)
 
-**Method 1: Direct File Reading** (Current - Always Available)
+The `/kiro:` slash commands provide structured spec-driven development workflows:
+
 ```
-Use read_file tool to access specs:
-- .kiro/specs/requirements.md - Functional and non-functional requirements
-- .kiro/specs/design.md - Architecture and design decisions
-- .kiro/specs/tasks.md - Implementation task breakdown
-- .kiro/specs/QUALITY_STANDARDS_TEMPLATE.md - Quality metrics
-- .kiro/specs/SONARCLOUD_INTEGRATION_GUIDE.md - CI/CD integration
-```
+# Feature Development Workflow
+/kiro:spec-init <feature-name> - Initialize new feature spec
+/kiro:spec-requirements <feature-name> - Create requirements document
+/kiro:spec-design <feature-name> -y - Create design document
+/kiro:spec-tasks <feature-name> -y - Create task breakdown
+/kiro:spec-impl <feature-name> 1.1,1.2,1.3 - Implement specific tasks
 
-**Method 2: MCP Server** (Future - Multi-Agent Clusters)
-```
-When beast-spec-mcp is deployed, use MCP tools:
-- get_requirements - Read requirements.md
-- get_design - Read design.md
-- get_tasks - Read tasks.md
-- get_requirement - Get specific requirement (FR-001)
-- search_specs - Search across all specs
-- validate_implementation - Check code vs requirements
-... (11+ tools total)
+# Validation Commands
+/kiro:validate-gap <feature-name> - Analyze gaps vs requirements
+/kiro:validate-design <feature-name> - Validate design integration
+/kiro:spec-status <feature-name> - Check feature status
 ```
 
-**Method 3: Cursor Commands** (For Authoring Workflows)
-```
-/kiro:spec-init <feature> - Initialize new feature spec
-/kiro:spec-requirements <feature> - Create requirements document
-/kiro:spec-design <feature> -y - Create design document
-/kiro:spec-tasks <feature> -y - Create task breakdown
-/kiro:spec-impl <feature> 1.1,1.2 - Implement specific tasks
-/kiro:validate-gap <feature> - Analyze gaps vs requirements
-/kiro:validate-design <feature> - Validate design integration
-/kiro:spec-status <feature> - Check feature status
-```
-
-**Why MCP Matters**: In Beast Mode multi-agent clusters, all LLMs must reference the SAME spec framework. Direct file reading creates inconsistency. MCP provides centralized, authoritative spec access with real-time updates.
+**Clarification**: cc-sdd uses Cursor commands (`/kiro:*`), NOT MCP server. These commands provide structured access to the spec framework defined in `.kiro/specs/`. See `.kiro/README.md` for complete command documentation.
 
 ### Required Reading (In Order)
 
@@ -79,7 +60,7 @@ When beast-spec-mcp is deployed, use MCP tools:
 
 ### Key Constraints
 
-- ✅ **Minimal dependencies**: ONLY `beast-mailbox-core` and stdlib
+- ✅ **Minimal dependencies**: `beast-mailbox-core` and `pydantic` (stdlib for everything else)
 - ✅ **Python >= 3.9**: Support 3.9, 3.10, 3.11, 3.12
 - ✅ **90%+ test coverage**: Non-negotiable quality bar
 - ✅ **Zero defects**: No linter errors, no type errors, no security issues
@@ -269,7 +250,7 @@ async def test_get_capabilities_metadata():
 ### DO NOT
 
 - ❌ **Break backward compatibility** - This is Tier 1, other packages depend on it
-- ❌ **Add dependencies** - Keep minimal (only beast-mailbox-core + stdlib)
+- ❌ **Add dependencies** - Keep minimal (beast-mailbox-core + pydantic + stdlib; document rationale for any additions)
 - ❌ **Skip tests** - 90%+ coverage is non-negotiable
 - ❌ **Bypass quality checks** - All checks must pass before commit
 - ❌ **Hardcode configuration** - Use env vars or constructor args
