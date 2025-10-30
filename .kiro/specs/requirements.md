@@ -275,6 +275,23 @@ class HealthStatus:
 
 ## 📚 Documentation Requirements
 
+### AGENT.md
+- **AI agent working guide** - How AI agents should work with this repository
+- Repository purpose and tier (Tier 1 foundation)
+- **How to access specs**:
+  - Method 1: Direct file reading (read_file tool)
+  - Method 2: Cursor commands (/kiro:spec-init, etc.)
+  - Clarification: cc-sdd uses Cursor commands, NOT MCP server
+- Required reading order (specs first)
+- Architecture overview
+- Development workflow
+- Critical rules (DO NOT / ALWAYS)
+- Integration points (upstream/downstream)
+- Quality standards
+- Common tasks
+- Troubleshooting
+- Pre-commit checklist
+
 ### README.md
 - Quick start (create simple agent)
 - Agent patterns (repo agent, branch agent)
