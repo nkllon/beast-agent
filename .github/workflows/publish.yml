@@ -8,6 +8,8 @@ jobs:
   publish:
     name: Build and Publish to PyPI
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Required for OIDC/Trusted Publishing
     
     steps:
       - uses: actions/checkout@v4
@@ -36,10 +38,7 @@ jobs:
         run: |
           twine check dist/*
 
-      - name: Publish to PyPI
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: |
-          twine upload dist/*
-
+      - name: Publish to PyPI using Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          print-hash: true
