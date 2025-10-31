@@ -5,7 +5,28 @@ and tests communication.
 """
 
 import asyncio
+import os
+from pathlib import Path
 from beast_agent import BaseAgent
+
+# Load environment variables from ~/.env if not already set
+def load_env_file():
+    """Load environment variables from ~/.env file if they exist."""
+    env_file = Path.home() / ".env"
+    if env_file.exists():
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    # Remove quotes if present
+                    value = value.strip().strip('"').strip("'")
+                    # Only set if not already in environment
+                    if key not in os.environ:
+                        os.environ[key] = value
+
+# Load env vars before creating agent
+load_env_file()
 
 
 class LiveFireTestAgent(BaseAgent):

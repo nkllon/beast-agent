@@ -107,7 +107,7 @@ class BaseAgent(ABC):
         return AgentConfig.from_env()
 
     def _create_mailbox_config(self) -> Optional["MailboxConfig"]:
-        """Create MailboxConfig from URL or env vars.
+        """Create MailboxConfig from mailbox_url parameter.
 
         Returns:
             MailboxConfig instance configured for mailbox connection, or None if not available
@@ -116,75 +116,20 @@ class BaseAgent(ABC):
             Returns None if beast-mailbox-core is not installed or if mailbox is not configured.
             This allows agents to function without mailbox for basic operations.
             
-            If mailbox_url is None, checks these environment variables in order:
-            1. REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB (for authenticated clusters)
-            2. REDIS_URL (for simple URL strings)
+            Simply passes through what the user provided - all Redis-specific configuration
+            and environment variable reading should be handled by beast-mailbox-core.
         """
         try:
             from beast_mailbox_core import MailboxConfig
 
-            # If mailbox_url is already a MailboxConfig instance, return it
+            # If mailbox_url is already a MailboxConfig instance, pass it through
             if isinstance(self._mailbox_url, MailboxConfig):
                 return self._mailbox_url
 
-            # If mailbox_url is None, check environment variables
-            if self._mailbox_url is None:
-                # Check for individual Redis env vars (supports authentication)
-                redis_host = os.getenv("REDIS_HOST")
-                if redis_host:
-                    return MailboxConfig(
-                        host=redis_host,
-                        port=int(os.getenv("REDIS_PORT", "6379")),
-                        password=os.getenv("REDIS_PASSWORD"),
-                        db=int(os.getenv("REDIS_DB", "0")),
-                        stream_prefix="mailbox",
-                        enable_recovery=True,
-                    )
-                
-                # Fallback to REDIS_URL (simple URL, no password support)
-                redis_url = os.getenv("REDIS_URL")
-                if not redis_url:
-                    return None
-                
-                # Parse URL string
-                url = redis_url
-                if url.startswith("redis://"):
-                    url = url[8:]  # Remove redis:// prefix
-
-                # Parse host and port
-                if ":" in url:
-                    host, port_str = url.rsplit(":", 1)
-                    port = int(port_str) if port_str.isdigit() else 6379
-                else:
-                    host = url if url else "localhost"
-                    port = 6379
-
-                return MailboxConfig(
-                    host=host,
-                    port=port,
-                    db=0,
-                    stream_prefix="mailbox",
-                )
-
-            # mailbox_url is a string URL - parse it
-            url = self._mailbox_url
-            if url.startswith("redis://"):
-                url = url[8:]  # Remove redis:// prefix
-
-            # Parse host and port
-            if ":" in url:
-                host, port_str = url.rsplit(":", 1)
-                port = int(port_str) if port_str.isdigit() else 6379
-            else:
-                host = url if url else "localhost"
-                port = 6379
-
-            return MailboxConfig(
-                host=host,
-                port=port,
-                db=0,
-                stream_prefix="mailbox",
-            )
+            # Otherwise, pass None - beast-mailbox-core should handle environment variables
+            # Note: Currently beast-mailbox-core defaults to localhost when config=None,
+            # but this configuration logic belongs in beast-mailbox-core, not beast-agent
+            return None
         except ImportError:
             # beast-mailbox-core not installed - mailbox features unavailable
             return None
@@ -202,56 +147,52 @@ class BaseAgent(ABC):
         self._logger.info(f"Starting agent {self.agent_id}")
         self._state = AgentState.INITIALIZING
 
-        # Initialize mailbox service (if available and configured)
+        # Initialize mailbox service (beast-mailbox-core handles all Redis configuration)
+        # Pass through MailboxConfig if provided, otherwise None - let beast-mailbox-core handle it
         self._mailbox_config = self._create_mailbox_config()
+        
+        try:
+            from beast_mailbox_core import RedisMailboxService
 
-        if self._mailbox_config is not None:
-            # Mailbox config available - try to start mailbox service
-            try:
-                from beast_mailbox_core import RedisMailboxService
+            # Create mailbox service - pass config through, or None for beast-mailbox-core to handle
+            self._mailbox = RedisMailboxService(
+                agent_id=self.agent_id,
+                config=self._mailbox_config,  # MailboxConfig or None - beast-mailbox-core handles it
+                recovery_callback=(
+                    self._handle_recovery
+                    if hasattr(self, "_handle_recovery")
+                    else None
+                ),
+            )
 
-                # Create mailbox service
-                self._mailbox = RedisMailboxService(
-                    agent_id=self.agent_id,
-                    config=self._mailbox_config,
-                    recovery_callback=(
-                        self._handle_recovery
-                        if hasattr(self, "_handle_recovery")
-                        else None
-                    ),
-                )
+            # Register mailbox message handler
+            self._mailbox.register_handler(self._mailbox_message_handler)
 
-                # Register mailbox message handler
-                self._mailbox.register_handler(self._mailbox_message_handler)
+            # Start mailbox service (connects to Redis)
+            result = await self._mailbox.start()
 
-                # Start mailbox service (connects to Redis)
-                result = await self._mailbox.start()
-
-                if not result:
-                    self._logger.error(
-                        f"Failed to start mailbox service for agent {self.agent_id}"
-                    )
-                    self._state = AgentState.ERROR
-                    return
-
-                self._logger.info(f"Mailbox service started for agent {self.agent_id}")
-
-                # Register agent name on the cluster for discovery
-                await self._register_agent_name()
-            except ImportError:
-                self._logger.warning(
-                    "beast-mailbox-core not installed - continuing without mailbox"
-                )
-                # Continue without mailbox - agent can function without it
-            except Exception as e:
+            if not result:
                 self._logger.error(
-                    f"Error starting mailbox service: {e}", exc_info=True
+                    f"Failed to start mailbox service for agent {self.agent_id}"
                 )
                 self._state = AgentState.ERROR
-                raise
-        else:
-            # Mailbox not configured - agent operates without mailbox
-            self._logger.debug("Mailbox not configured - operating without mailbox")
+                return
+
+            self._logger.info(f"Mailbox service started for agent {self.agent_id}")
+
+            # Register agent name on the cluster for discovery
+            await self._register_agent_name()
+        except ImportError:
+            self._logger.warning(
+                "beast-mailbox-core not installed - continuing without mailbox"
+            )
+            # Continue without mailbox - agent can function without it
+        except Exception as e:
+            self._logger.error(
+                f"Error starting mailbox service: {e}", exc_info=True
+            )
+            self._state = AgentState.ERROR
+            raise
 
         await self.on_startup()
         self._state = AgentState.READY
@@ -560,10 +501,15 @@ class BaseAgent(ABC):
             host = self._mailbox_config.host
             port = self._mailbox_config.port
             db = self._mailbox_config.db if hasattr(self._mailbox_config, "db") else 0
+            password = (
+                self._mailbox_config.password
+                if hasattr(self._mailbox_config, "password")
+                else None
+            )
 
             # Create Redis connection using exact same config as mailbox
             redis_client = redis.Redis(
-                host=host, port=port, db=db, decode_responses=True
+                host=host, port=port, db=db, password=password, decode_responses=True
             )
 
             # Remove agent name from discovery
