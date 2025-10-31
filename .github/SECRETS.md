@@ -37,7 +37,7 @@ The workflow uses PyPI Trusted Publishing, which is more secure and doesn't requ
 2. Click "Add a new pending publisher"
 3. Configure:
    - **PyPI project name:** `beast-agent`
-   - **Owner:** `nkllon` (or your PyPI username)
+   - **Owner:** `louspringer` (your PyPI username)
    - **Workflow filename:** `.github/workflows/publish.yml`
    - **GitHub repository:** `nkllon/beast-agent`
    - **Environment name:** (leave blank or use `production`)
