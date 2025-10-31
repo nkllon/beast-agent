@@ -363,20 +363,29 @@ Before creating a release:
 ### Deployment Workflow
 
 **Step 1: Create Release**
+
+**Option A: Using GitHub CLI (Recommended)**
 ```bash
 # Tag the release
 git tag -a v0.1.0 -m "Release v0.1.0: BaseAgent implementation"
 
-# Push tag (triggers release workflow)
+# Push tag
 git push origin v0.1.0
 
-# OR create release via GitHub UI:
-# 1. Go to repository → Releases → "Create a new release"
-# 2. Tag: v0.1.0
-# 3. Title: Release v0.1.0
-# 4. Description: List of changes
-# 5. Click "Publish release"
+# Create GitHub release (triggers PyPI publishing workflow)
+gh release create v0.1.0 \
+  --title "Release v0.1.0: BaseAgent Implementation" \
+  --notes "Release notes here..."
 ```
+
+**Option B: Using GitHub UI**
+1. Go to repository → Releases → "Create a new release"
+2. Tag: v0.1.0 (should exist after pushing tag)
+3. Title: Release v0.1.0
+4. Description: List of changes
+5. Click "Publish release"
+
+**Note:** The PyPI publishing workflow only triggers when a release is published (not just a tag pushed).
 
 **Step 2: Workflows Execute Automatically**
 
