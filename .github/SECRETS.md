@@ -24,19 +24,26 @@ This document lists the secrets that need to be configured in GitHub repository 
 
 **`PYPI_API_TOKEN`** (Required for PyPI publishing workflow)
 - Description: PyPI API token for publishing packages
+- **Important:** Token must be scoped to the `beast-agent` project, NOT project-scoped to another package
 - How to obtain:
-  1. Go to https://pypi.org
-  2. Log in to your account
-  3. Go to Account Settings → API tokens
-  4. Create a new API token (or use existing)
+  1. Go to https://pypi.org/manage/account/token/
+  2. Click "Add API token"
+  3. Token name: `beast-agent CI/CD` (or similar)
+  4. **Scope:** Select `beast-agent` project (NOT account-wide or other projects)
   5. Copy the token (format: `pypi-...`)
 - How to add in GitHub:
   1. Go to repository Settings → Secrets and variables → Actions
   2. Click "New repository secret"
   3. Name: `PYPI_API_TOKEN`
-  4. Value: Paste the PyPI API token
+  4. Value: Paste the PyPI API token (must be scoped to `beast-agent`)
   5. Click "Add secret"
+- **Or using GitHub CLI:**
+  ```bash
+  gh secret set PYPI_API_TOKEN
+  # Paste the token when prompted
+  ```
 - Usage: Used by `.github/workflows/publish.yml` to publish releases to PyPI
+- **Common Error:** "project-scoped token is not valid for project: 'beast-agent'" means the token is scoped to a different project
 
 ### Automatic Secrets (No Action Needed)
 
