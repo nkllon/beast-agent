@@ -543,4 +543,108 @@ class BaseAgent(ABC):
         except Exception as e:
             # Non-fatal - log but don't fail shutdown
             self._logger.warning(f"Failed to unregister agent name from cluster: {e}")
-        # Could update health status or metrics here if needed
+
+    async def discover_agents(self) -> List[str]:
+        """Discover all active agents on the cluster.
+
+        Returns:
+            List of active agent IDs
+
+        Raises:
+            RuntimeError: If mailbox is not initialized
+        """
+        if not self._mailbox_config:
+            raise RuntimeError("Mailbox not initialized. Call startup() first.")
+
+        try:
+            import redis.asyncio as redis
+
+            host = self._mailbox_config.host
+            port = self._mailbox_config.port
+            db = self._mailbox_config.db if hasattr(self._mailbox_config, "db") else 0
+
+            redis_client = redis.Redis(
+                host=host, port=port, db=db, decode_responses=True
+            )
+
+            # Get all agent IDs from the set
+            agent_ids = await redis_client.smembers("beast:agents:all")
+
+            await redis_client.aclose()
+
+            return list(agent_ids) if agent_ids else []
+        except ImportError:
+            self._logger.error("redis package not available for discovery")
+            return []
+        except Exception as e:
+            self._logger.error(f"Failed to discover agents: {e}", exc_info=True)
+            return []
+
+    async def get_agent_info(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        """Get metadata for a specific agent.
+
+        Args:
+            agent_id: Agent ID to query
+
+        Returns:
+            Agent metadata dictionary (agent_id, capabilities, state, registered_at) or None if not found
+
+        Raises:
+            RuntimeError: If mailbox is not initialized
+        """
+        if not self._mailbox_config:
+            raise RuntimeError("Mailbox not initialized. Call startup() first.")
+
+        try:
+            import redis.asyncio as redis
+
+            host = self._mailbox_config.host
+            port = self._mailbox_config.port
+            db = self._mailbox_config.db if hasattr(self._mailbox_config, "db") else 0
+
+            redis_client = redis.Redis(
+                host=host, port=port, db=db, decode_responses=True
+            )
+
+            # Get agent metadata
+            key = f"beast:agents:{agent_id}"
+            agent_info_str = await redis_client.get(key)
+
+            await redis_client.aclose()
+
+            if agent_info_str:
+                return json.loads(agent_info_str)
+            return None
+        except ImportError:
+            self._logger.error("redis package not available for agent info")
+            return None
+        except Exception as e:
+            self._logger.error(
+                f"Failed to get agent info for {agent_id}: {e}", exc_info=True
+            )
+            return None
+
+    async def find_agents_by_capability(self, capability: str) -> List[Dict[str, Any]]:
+        """Find all agents that provide a specific capability.
+
+        Args:
+            capability: Capability name to search for
+
+        Returns:
+            List of agent metadata dictionaries for agents with the capability
+
+        Raises:
+            RuntimeError: If mailbox is not initialized
+        """
+        if not self._mailbox_config:
+            raise RuntimeError("Mailbox not initialized. Call startup() first.")
+
+        matching_agents = []
+        agent_ids = await self.discover_agents()
+
+        for agent_id in agent_ids:
+            agent_info = await self.get_agent_info(agent_id)
+            if agent_info and capability in agent_info.get("capabilities", []):
+                matching_agents.append(agent_info)
+
+        return matching_agents

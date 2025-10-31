@@ -119,9 +119,27 @@ When your agent starts, it automatically:
 - ✅ Publishes metadata: agent_id, capabilities, state, timestamp
 - ✅ Uses the same Redis connection as mailbox (production cluster)
 
-Other agents can discover you by:
-- Querying `beast:agents:all` set to get all active agent IDs
-- Reading `beast:agents:{agent_id}` to get your metadata
+**Discovering Other Agents:**
+
+After your agent starts, you can discover other agents on the cluster:
+
+```python
+# Discover all active agents
+agent_ids = await agent.discover_agents()
+print(f"Found {len(agent_ids)} agents: {agent_ids}")
+
+# Get metadata for a specific agent
+agent_info = await agent.get_agent_info("other-agent-id")
+if agent_info:
+    print(f"Agent: {agent_info['agent_id']}")
+    print(f"Capabilities: {agent_info['capabilities']}")
+    print(f"State: {agent_info['state']}")
+
+# Find agents by capability
+search_agents = await agent.find_agents_by_capability("search")
+for agent_info in search_agents:
+    print(f"Found search agent: {agent_info['agent_id']}")
+```
 
 ### Configuration
 
@@ -270,7 +288,32 @@ if __name__ == "__main__":
 3. Implement `on_startup()` and `on_shutdown()`
 4. Register message handlers
 5. Start your agent - it will automatically register on the cluster!
-6. Other agents can discover you and send messages
+6. **Discover other agents** using `discover_agents()`, `get_agent_info()`, and `find_agents_by_capability()`
+7. Send messages to discovered agents using `send_message()`
+
+**Discovery Example for Live-Fire Testing:**
+```python
+# After startup, find other agents on the cluster
+await agent.startup()
+
+# Discover all active agents
+all_agents = await agent.discover_agents()
+print(f"Found {len(all_agents)} agents: {all_agents}")
+
+# Get info about a specific agent (like beast-agent)
+beast_agent_info = await agent.get_agent_info("beast-agent")
+if beast_agent_info:
+    print(f"Found beast-agent: {beast_agent_info['capabilities']}")
+
+# Find agents by capability
+helpers = await agent.find_agents_by_capability("help")
+for helper in helpers:
+    await agent.send_message(
+        target=helper["agent_id"],
+        message_type="HELP_REQUEST",
+        content={"request": "Hello from live-fire testing!"}
+    )
+```
 
 Your agent name will be registered on the cluster automatically when you call `startup()`, making you discoverable by other agents on the same Redis cluster.
 
