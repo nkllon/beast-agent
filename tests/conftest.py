@@ -13,7 +13,7 @@ import pytest
 
 def _stop_docker_container(container_name: str) -> None:
     """Stop and remove a Docker container.
-    
+
     This ensures containers are properly cleaned up after tests.
     Containers should never be left running after test sessions.
     """
@@ -50,7 +50,14 @@ def redis_docker() -> Tuple[str, int]:
 
     # Check if container already exists and is running
     result = subprocess.run(
-        ["docker", "ps", "--filter", f"name={container_name}", "--format", "{{.Names}}"],
+        [
+            "docker",
+            "ps",
+            "--filter",
+            f"name={container_name}",
+            "--format",
+            "{{.Names}}",
+        ],
         capture_output=True,
         text=True,
     )
@@ -79,9 +86,13 @@ def redis_docker() -> Tuple[str, int]:
     try:
         result = subprocess.run(
             [
-                "docker", "run", "-d",
-                "--name", container_name,
-                "-p", "6379:6379",
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                container_name,
+                "-p",
+                "6379:6379",
                 "redis:latest",
             ],
             capture_output=True,
@@ -94,11 +105,18 @@ def redis_docker() -> Tuple[str, int]:
 
         # Verify container is actually running (not just created)
         check_result = subprocess.run(
-            ["docker", "ps", "--filter", f"name={container_name}", "--format", "{{.Names}}"],
+            [
+                "docker",
+                "ps",
+                "--filter",
+                f"name={container_name}",
+                "--format",
+                "{{.Names}}",
+            ],
             capture_output=True,
             text=True,
         )
-        
+
         if container_name not in check_result.stdout:
             # Container was created but not running (likely port conflict)
             _stop_docker_container(container_name)
@@ -113,8 +131,10 @@ def redis_docker() -> Tuple[str, int]:
         _stop_docker_container(container_name)
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         # Docker not available or failed to start
-        error_msg = str(e) if hasattr(e, 'stderr') and e.stderr else str(e)
-        pytest.skip(f"Docker not available or Redis container failed to start: {error_msg}")
+        error_msg = str(e) if hasattr(e, "stderr") and e.stderr else str(e)
+        pytest.skip(
+            f"Docker not available or Redis container failed to start: {error_msg}"
+        )
 
 
 @pytest.fixture(scope="session")
@@ -132,6 +152,7 @@ def redis_available(redis_docker: Tuple[str, int]) -> bool:
     """
     try:
         import redis
+
         client = redis.Redis(host=redis_docker[0], port=redis_docker[1], db=15)
         client.ping()
         client.close()
@@ -149,6 +170,7 @@ def mailbox_core_available() -> bool:
     """
     try:
         import beast_mailbox_core
+
         return True
     except ImportError:
         return False
@@ -173,9 +195,9 @@ def mailbox_config(redis_docker: Tuple[str, int], mailbox_core_available: bool):
     """
     if not mailbox_core_available:
         pytest.skip("beast-mailbox-core not available - install for integration tests")
-    
+
     from beast_mailbox_core import MailboxConfig
-    
+
     return MailboxConfig(
         host=redis_docker[0],
         port=redis_docker[1],
@@ -184,4 +206,3 @@ def mailbox_config(redis_docker: Tuple[str, int], mailbox_core_available: bool):
         enable_recovery=True,
         recovery_min_idle_time=0,  # Immediate recovery for tests
     )
-

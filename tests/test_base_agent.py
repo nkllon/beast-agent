@@ -32,16 +32,17 @@ async def test_agent_initialization(redis_docker):
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(not pytest.importorskip("beast_mailbox_core"), reason="beast-mailbox-core not available")
+@pytest.mark.skipif(
+    not pytest.importorskip("beast_mailbox_core"),
+    reason="beast-mailbox-core not available",
+)
 async def test_agent_startup(mailbox_config, redis_available):
     """Test agent startup lifecycle with real Redis."""
     if not redis_available:
         pytest.skip("Redis not available")
-    
+
     agent = MinimalAgent(
-        agent_id="test-agent",
-        capabilities=["test"],
-        mailbox_url=mailbox_config
+        agent_id="test-agent", capabilities=["test"], mailbox_url=mailbox_config
     )
 
     await agent.startup()
@@ -49,21 +50,22 @@ async def test_agent_startup(mailbox_config, redis_available):
     assert agent._state == AgentState.READY
     assert agent.started is True
     assert agent.ready() is True
-    
+
     await agent.shutdown()
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(not pytest.importorskip("beast_mailbox_core"), reason="beast-mailbox-core not available")
+@pytest.mark.skipif(
+    not pytest.importorskip("beast_mailbox_core"),
+    reason="beast-mailbox-core not available",
+)
 async def test_agent_shutdown(mailbox_config, redis_available):
     """Test agent shutdown lifecycle with real Redis."""
     if not redis_available:
         pytest.skip("Redis not available")
-    
+
     agent = MinimalAgent(
-        agent_id="test-agent",
-        capabilities=["test"],
-        mailbox_url=mailbox_config
+        agent_id="test-agent", capabilities=["test"], mailbox_url=mailbox_config
     )
 
     await agent.startup()
@@ -75,16 +77,17 @@ async def test_agent_shutdown(mailbox_config, redis_available):
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(not pytest.importorskip("beast_mailbox_core"), reason="beast-mailbox-core not available")
+@pytest.mark.skipif(
+    not pytest.importorskip("beast_mailbox_core"),
+    reason="beast-mailbox-core not available",
+)
 async def test_health_check(mailbox_config, redis_available):
     """Test health check returns correct status with real Redis."""
     if not redis_available:
         pytest.skip("Redis not available")
-    
+
     agent = MinimalAgent(
-        agent_id="test-agent",
-        capabilities=["test"],
-        mailbox_url=mailbox_config
+        agent_id="test-agent", capabilities=["test"], mailbox_url=mailbox_config
     )
 
     await agent.startup()
@@ -93,7 +96,7 @@ async def test_health_check(mailbox_config, redis_available):
     assert health.healthy is True
     assert health.state == AgentState.READY
     assert health.metadata["agent_id"] == "test-agent"
-    
+
     await agent.shutdown()
 
 
@@ -109,4 +112,3 @@ async def test_register_handler():
 
     assert "TEST_MESSAGE" in agent._handlers
     assert agent._handlers["TEST_MESSAGE"] == test_handler
-

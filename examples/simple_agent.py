@@ -9,9 +9,7 @@ class SimpleAgent(BaseAgent):
     """A simple agent that processes data."""
 
     def __init__(self):
-        super().__init__(
-            agent_id="simple-agent", capabilities=["process_data", "echo"]
-        )
+        super().__init__(agent_id="simple-agent", capabilities=["process_data", "echo"])
 
     async def on_startup(self) -> None:
         """Initialize agent."""
@@ -58,4 +56,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

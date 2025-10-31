@@ -35,9 +35,7 @@ class AgentConfig(BaseModel):
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         upper_v = v.upper()
         if upper_v not in valid_levels:
-            raise ValueError(
-                f"log_level must be one of {valid_levels}, got {v}"
-            )
+            raise ValueError(f"log_level must be one of {valid_levels}, got {v}")
         return upper_v
 
     @classmethod
@@ -91,4 +89,3 @@ class AgentConfig(BaseModel):
         frozen=True,  # Immutable after creation
         extra="forbid",  # Reject unknown fields
     )
-

@@ -7,4 +7,3 @@ from beast_agent.decorators import capability
 
 __version__ = "0.1.0"
 __all__ = ["BaseAgent", "AgentState", "HealthStatus", "AgentConfig", "capability"]
-

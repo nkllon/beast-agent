@@ -27,4 +27,3 @@ class HealthStatus:
     message_queue_size: int
     error_count: int
     metadata: Dict[str, Any]
-

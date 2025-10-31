@@ -50,6 +50,10 @@
 
 ### FR-4: Agent Registration & Discovery
 - **Must** register agent on startup (with central registry or service mesh)
+- **Must** register agent name/ID in Redis cluster for discovery (implemented via `_register_agent_name()`)
+- **Must** publish agent metadata (agent_id, capabilities, state) to Redis for discovery
+- **Must** maintain registry of active agents (`beast:agents:all` set)
+- **Must** unregister agent name on shutdown
 - **Must** declare agent capabilities
 - **Must** declare agent ID (unique per agent instance)
 - **Must** support agent discovery (find other agents by capability)

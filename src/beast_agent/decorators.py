@@ -26,4 +26,3 @@ def capability(name: str, version: str = "1.0.0") -> Callable:
         return func
 
     return decorator
-

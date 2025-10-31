@@ -343,10 +343,16 @@ async def send_message(self, target: str, message_type: str, content: Dict[str, 
 ```
 
 **Agent Registration/Discovery**:
-- Agent registration happens automatically when `RedisMailboxService.start()` is called
-- The agent_id is passed to `RedisMailboxService.__init__()` and used for routing
-- Discovery queries handled by `beast-mailbox-core` (via Redis streams)
-- Capabilities are not automatically registered - need to be published separately (v0.2.0)
+- Agent name registration happens automatically in `BaseAgent.startup()` via `_register_agent_name()`
+- Agent name is published to Redis with key `beast:agents:{agent_id}` containing JSON metadata
+- Agent ID is added to `beast:agents:all` set for quick discovery of all active agents
+- Registration uses same Redis connection as mailbox service (production cluster endpoint)
+- Agent metadata includes: agent_id, capabilities, registered_at timestamp, current state
+- Registration expires after 60 seconds (should be refreshed by heartbeat mechanism)
+- Agent name unregistration happens in `BaseAgent.shutdown()` via `_unregister_agent_name()`
+- The agent_id is passed to `RedisMailboxService.__init__()` and used for message routing
+- Discovery queries can query `beast:agents:all` set to find all active agents
+- Capability-based discovery queries can inspect individual agent metadata (v0.2.0)
 
 **Shutdown Flow**:
 ```python

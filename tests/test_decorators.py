@@ -23,4 +23,3 @@ def test_capability_decorator_default_version():
         pass
 
     assert test_func._capability_version == "1.0.0"
-

@@ -1,5 +1,6 @@
 """Base agent class for all Beast Mode agents."""
 
+import json
 import logging
 import os
 from abc import ABC, abstractmethod
@@ -10,7 +11,12 @@ from beast_agent.models import AgentConfig
 from beast_agent.types import AgentState, HealthStatus
 
 if TYPE_CHECKING:
-    from beast_mailbox_core import RedisMailboxService, MailboxMessage, MailboxConfig, RecoveryMetrics
+    from beast_mailbox_core import (
+        RedisMailboxService,
+        MailboxMessage,
+        MailboxConfig,
+        RecoveryMetrics,
+    )
 
 
 class BaseAgent(ABC):
@@ -48,14 +54,14 @@ class BaseAgent(ABC):
         """
         self.agent_id = agent_id
         self.capabilities = capabilities
-        
+
         # Validate and load configuration
         if config is None:
             self.config = self._load_config()
         else:
             # Config is already validated (pydantic model)
             self.config = config
-        
+
         self._state = AgentState.INITIALIZING
         self._handlers: Dict[str, Callable] = {}
         self._error_count = 0
@@ -67,7 +73,7 @@ class BaseAgent(ABC):
         # If None and no env var, agent operates without mailbox
         if mailbox_url is None:
             mailbox_url = os.getenv("REDIS_URL")  # May be None
-        
+
         self._mailbox_url = mailbox_url
         self._mailbox: Optional["RedisMailboxService"] = None
         self._mailbox_config: Optional["MailboxConfig"] = None
@@ -109,20 +115,20 @@ class BaseAgent(ABC):
         """
         try:
             from beast_mailbox_core import MailboxConfig
-            
+
             # If mailbox_url is already a MailboxConfig instance, return it
             if isinstance(self._mailbox_url, MailboxConfig):
                 return self._mailbox_url
-            
+
             # Parse URL string (simple implementation - could be enhanced)
             # For now, assume redis://host:port format
             if self._mailbox_url is None:
                 return None
-                
+
             url = self._mailbox_url
             if url.startswith("redis://"):
                 url = url[8:]  # Remove redis:// prefix
-            
+
             # Parse host and port
             if ":" in url:
                 host, port_str = url.rsplit(":", 1)
@@ -130,7 +136,7 @@ class BaseAgent(ABC):
             else:
                 host = url if url else "localhost"
                 port = 6379
-            
+
             return MailboxConfig(
                 host=host,
                 port=port,
@@ -156,36 +162,49 @@ class BaseAgent(ABC):
 
         # Initialize mailbox service (if available and configured)
         self._mailbox_config = self._create_mailbox_config()
-        
+
         if self._mailbox_config is not None:
             # Mailbox config available - try to start mailbox service
             try:
                 from beast_mailbox_core import RedisMailboxService
-                
+
                 # Create mailbox service
                 self._mailbox = RedisMailboxService(
                     agent_id=self.agent_id,
                     config=self._mailbox_config,
-                    recovery_callback=self._handle_recovery if hasattr(self, '_handle_recovery') else None
+                    recovery_callback=(
+                        self._handle_recovery
+                        if hasattr(self, "_handle_recovery")
+                        else None
+                    ),
                 )
-                
+
                 # Register mailbox message handler
                 self._mailbox.register_handler(self._mailbox_message_handler)
-                
+
                 # Start mailbox service (connects to Redis)
                 result = await self._mailbox.start()
-                
+
                 if not result:
-                    self._logger.error(f"Failed to start mailbox service for agent {self.agent_id}")
+                    self._logger.error(
+                        f"Failed to start mailbox service for agent {self.agent_id}"
+                    )
                     self._state = AgentState.ERROR
                     return
-                
+
                 self._logger.info(f"Mailbox service started for agent {self.agent_id}")
+
+                # Register agent name on the cluster for discovery
+                await self._register_agent_name()
             except ImportError:
-                self._logger.warning("beast-mailbox-core not installed - continuing without mailbox")
+                self._logger.warning(
+                    "beast-mailbox-core not installed - continuing without mailbox"
+                )
                 # Continue without mailbox - agent can function without it
             except Exception as e:
-                self._logger.error(f"Error starting mailbox service: {e}", exc_info=True)
+                self._logger.error(
+                    f"Error starting mailbox service: {e}", exc_info=True
+                )
                 self._state = AgentState.ERROR
                 raise
         else:
@@ -221,13 +240,18 @@ class BaseAgent(ABC):
 
         await self.on_shutdown()
 
+        # Unregister agent name from cluster
+        await self._unregister_agent_name()
+
         # Stop mailbox service
         if self._mailbox:
             try:
                 await self._mailbox.stop()
                 self._logger.info(f"Mailbox service stopped for agent {self.agent_id}")
             except Exception as e:
-                self._logger.error(f"Error stopping mailbox service: {e}", exc_info=True)
+                self._logger.error(
+                    f"Error stopping mailbox service: {e}", exc_info=True
+                )
 
         self._state = AgentState.STOPPED
         self._logger.info(f"Agent {self.agent_id} stopped")
@@ -250,7 +274,7 @@ class BaseAgent(ABC):
         """
         # Get message queue size from mailbox if available
         message_queue_size = 0
-        if self._mailbox and hasattr(self._mailbox, '_client'):
+        if self._mailbox and hasattr(self._mailbox, "_client"):
             try:
                 # Try to get pending count from mailbox
                 # This is a simplified implementation - actual implementation
@@ -258,7 +282,7 @@ class BaseAgent(ABC):
                 pass
             except Exception:
                 pass
-        
+
         return HealthStatus(
             healthy=(self._state in [AgentState.READY, AgentState.RUNNING]),
             state=self._state,
@@ -311,14 +335,14 @@ class BaseAgent(ABC):
         """
         if not self._mailbox:
             raise RuntimeError("Mailbox not initialized. Call startup() first.")
-        
+
         try:
             message_id = await self._mailbox.send_message(
                 recipient=target,
                 payload={"type": message_type, "content": content},
-                message_type="direct_message"
+                message_type="direct_message",
             )
-            
+
             self._logger.debug(f"Sent {message_type} to {target}: {message_id}")
             return message_id
         except Exception as e:
@@ -359,7 +383,7 @@ class BaseAgent(ABC):
             # Extract payload (assumed to contain {"type": str, "content": dict})
             payload = mailbox_message.payload
             message_type = payload.get("type")
-            
+
             # Route to registered handler
             if message_type in self._handlers:
                 handler = self._handlers[message_type]
@@ -376,7 +400,7 @@ class BaseAgent(ABC):
             self._error_count += 1
             self._logger.error(
                 f"Error handling mailbox message from {mailbox_message.sender}: {e}",
-                exc_info=True
+                exc_info=True,
             )
 
     async def _handle_recovery(self, metrics: "RecoveryMetrics") -> None:
@@ -391,5 +415,129 @@ class BaseAgent(ABC):
             f"Recovery metrics: {metrics.total_recovered} messages recovered "
             f"in {metrics.batches_processed} batches"
         )
-        # Could update health status or metrics here if needed
 
+    async def _register_agent_name(self) -> None:
+        """Register agent name on the cluster for discovery.
+
+        Publishes agent_id to Redis so other agents can discover it.
+        Uses the same Redis connection that the mailbox service uses.
+        Uses a simple Redis SET with expiration (heartbeat-based).
+        """
+        if not self._mailbox_config:
+            return  # No mailbox, no registration
+
+        try:
+            # Use Redis directly to register agent name
+            # Key format: beast:agents:{agent_id}
+            # Value: JSON with agent metadata
+            import redis.asyncio as redis
+
+            # Extract Redis connection info from mailbox config (must match mailbox connection)
+            # If mailbox started successfully, these should be production values, not defaults
+            if not hasattr(self._mailbox_config, "host") or not hasattr(
+                self._mailbox_config, "port"
+            ):
+                self._logger.warning(
+                    "Mailbox config missing host/port - cannot register agent name"
+                )
+                return
+
+            host = self._mailbox_config.host
+            port = self._mailbox_config.port
+            db = self._mailbox_config.db if hasattr(self._mailbox_config, "db") else 0
+
+            # Note: host will be from mailbox config - localhost is fine for single-node clusters,
+            # but in production multi-node clusters, it will be the actual Redis cluster endpoint
+            if host == "localhost":
+                self._logger.debug(
+                    f"Using localhost Redis (single-node cluster): {host}:{port}"
+                )
+
+            # Create Redis connection using exact same config as mailbox
+            redis_client = redis.Redis(
+                host=host, port=port, db=db, decode_responses=True
+            )
+
+            # Register agent name with metadata
+            agent_info = {
+                "agent_id": self.agent_id,
+                "capabilities": self.capabilities,
+                "registered_at": datetime.now().isoformat(),
+                "state": (
+                    self._state.value
+                    if hasattr(self._state, "value")
+                    else str(self._state)
+                ),
+            }
+
+            # Set with expiration (heartbeat-based - 60 seconds)
+            # Agents should heartbeat to refresh this
+            key = f"beast:agents:{self.agent_id}"
+            await redis_client.setex(
+                key,
+                60,  # Expire in 60 seconds (should be refreshed by heartbeat)
+                json.dumps(agent_info),
+            )
+
+            # Also add to set of all agent IDs for quick discovery
+            await redis_client.sadd("beast:agents:all", self.agent_id)
+
+            await redis_client.aclose()
+
+            self._logger.debug(f"Registered agent name on cluster: {self.agent_id}")
+        except ImportError:
+            # redis package not available - skip registration
+            self._logger.debug(
+                "redis package not available - skipping agent name registration"
+            )
+        except Exception as e:
+            # Non-fatal - log but don't fail startup
+            self._logger.warning(f"Failed to register agent name on cluster: {e}")
+
+    async def _unregister_agent_name(self) -> None:
+        """Unregister agent name from the cluster.
+
+        Removes agent_id from Redis discovery registry.
+        Uses the same Redis connection that the mailbox service uses.
+        """
+        if not self._mailbox_config:
+            return  # No mailbox, no unregistration
+
+        try:
+            import redis.asyncio as redis
+
+            # Extract Redis connection info from mailbox config (must match mailbox connection)
+            if not hasattr(self._mailbox_config, "host") or not hasattr(
+                self._mailbox_config, "port"
+            ):
+                self._logger.warning(
+                    "Mailbox config missing host/port - cannot unregister agent name"
+                )
+                return
+
+            host = self._mailbox_config.host
+            port = self._mailbox_config.port
+            db = self._mailbox_config.db if hasattr(self._mailbox_config, "db") else 0
+
+            # Create Redis connection using exact same config as mailbox
+            redis_client = redis.Redis(
+                host=host, port=port, db=db, decode_responses=True
+            )
+
+            # Remove agent name from discovery
+            key = f"beast:agents:{self.agent_id}"
+            await redis_client.delete(key)
+
+            # Remove from set of all agents
+            await redis_client.srem("beast:agents:all", self.agent_id)
+
+            await redis_client.aclose()
+
+            self._logger.debug(f"Unregistered agent name from cluster: {self.agent_id}")
+        except ImportError:
+            # redis package not available - skip unregistration
+            pass
+        except Exception as e:
+            # Non-fatal - log but don't fail shutdown
+            self._logger.warning(f"Failed to unregister agent name from cluster: {e}")
+        # Could update health status or metrics here if needed
