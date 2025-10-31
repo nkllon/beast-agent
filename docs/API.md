@@ -23,11 +23,13 @@ Abstract base class for all Beast Mode agents.
 
 #### Constructor
 
+Initializes a new agent instance.
+
 ```python
 BaseAgent(
     agent_id: str,
     capabilities: List[str],
-    mailbox_url: Optional[str] = None,
+    mailbox_url: Optional[Union[str, MailboxConfig]] = None,
     config: Optional[AgentConfig] = None
 )
 ```
@@ -35,7 +37,10 @@ BaseAgent(
 **Parameters**:
 - `agent_id` (str, required): Unique identifier for this agent instance
 - `capabilities` (List[str], required): List of capability names this agent provides
-- `mailbox_url` (str, optional): Redis mailbox URL (defaults to `REDIS_URL` env var)
+- `mailbox_url` (Optional[Union[str, MailboxConfig]]): Redis connection configuration
+  - `str`: Redis URL string (e.g., `"redis://localhost:6379"`) for unauthenticated connections
+  - `MailboxConfig`: Advanced configuration object with authentication support (recommended for production)
+  - `None`: Uses `REDIS_URL` environment variable
 - `config` (AgentConfig, optional): Agent configuration (defaults to env vars)
 
 **Raises**:
@@ -45,11 +50,30 @@ BaseAgent(
 ```python
 from beast_agent import BaseAgent, AgentConfig
 
+# Example 1: Unauthenticated connection (string URL)
 config = AgentConfig(log_level="DEBUG")
 agent = MyAgent(
     agent_id="my-agent",
     capabilities=["cap1", "cap2"],
     mailbox_url="redis://localhost:6379",
+    config=config
+)
+
+# Example 2: Authenticated connection (MailboxConfig) - Recommended for production
+from beast_mailbox_core import MailboxConfig
+import os
+
+mailbox_config = MailboxConfig(
+    host=os.getenv("REDIS_HOST", "localhost"),
+    port=int(os.getenv("REDIS_PORT", "6379")),
+    password=os.getenv("REDIS_PASSWORD"),
+    db=0
+)
+
+agent = MyAgent(
+    agent_id="my-agent",
+    capabilities=["cap1", "cap2"],
+    mailbox_url=mailbox_config,  # Pass MailboxConfig object for authenticated clusters
     config=config
 )
 ```
@@ -158,24 +182,81 @@ async def handle_task_request(message: dict) -> None:
 agent.register_handler("TASK_REQUEST", handle_task_request)
 ```
 
-##### `async send_message(target: str, message_type: str, content: Dict[str, Any]) -> None`
+##### `async send_message(target: str, message_type: str, content: Dict[str, Any]) -> str`
 
-Send message to target agent.
+Send message to target agent via mailbox.
 
 **Parameters**:
 - `target` (str): Target agent ID
 - `message_type` (str): Message type (e.g., "HELP_REQUEST")
 - `content` (Dict[str, Any]): Message content dictionary
 
-**Note**: In v0.1.0, this method logs but doesn't actually send (requires v0.2.0 mailbox integration).
+**Returns**: Message ID from mailbox service
+
+**Raises**: `RuntimeError` if mailbox is not initialized
+
+**Note**: Requires mailbox integration (v0.2.0+). Message sending works with `beast-mailbox-core`.
 
 **Example**:
 ```python
-await agent.send_message(
+await agent.startup()
+message_id = await agent.send_message(
     target="other-agent",
     message_type="HELP_REQUEST",
     content={"request": "I need help"}
 )
+```
+
+##### `async discover_agents() -> List[str]`
+
+Discover all active agents on the cluster.
+
+**Returns**: List of active agent IDs
+
+**Raises**: `RuntimeError` if mailbox is not initialized
+
+**Example**:
+```python
+await agent.startup()
+all_agents = await agent.discover_agents()
+print(f"Found {len(all_agents)} agents: {all_agents}")
+```
+
+##### `async get_agent_info(agent_id: str) -> Optional[Dict[str, Any]]`
+
+Get metadata for a specific agent.
+
+**Parameters**:
+- `agent_id` (str): Agent ID to query
+
+**Returns**: Agent metadata dictionary (agent_id, capabilities, state, registered_at) or None if not found
+
+**Raises**: `RuntimeError` if mailbox is not initialized
+
+**Example**:
+```python
+agent_info = await agent.get_agent_info("other-agent-id")
+if agent_info:
+    print(f"Capabilities: {agent_info['capabilities']}")
+    print(f"State: {agent_info['state']}")
+```
+
+##### `async find_agents_by_capability(capability: str) -> List[Dict[str, Any]]`
+
+Find all agents that provide a specific capability.
+
+**Parameters**:
+- `capability` (str): Capability name to search for
+
+**Returns**: List of agent metadata dictionaries for agents with the capability
+
+**Raises**: `RuntimeError` if mailbox is not initialized
+
+**Example**:
+```python
+search_agents = await agent.find_agents_by_capability("search")
+for agent_info in search_agents:
+    print(f"Found search agent: {agent_info['agent_id']}")
 ```
 
 ##### `async handle_message(message: Dict[str, Any]) -> None`
