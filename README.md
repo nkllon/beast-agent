@@ -37,13 +37,16 @@ pip install beast-agent
 
 ### Configuration
 
-Configure Redis connection via environment variable:
+Configure Redis connection via environment variable (for unauthenticated connections):
 
 ```bash
 export REDIS_URL="redis://localhost:6379"
 ```
 
-Or pass directly to constructor (see examples below).
+Or pass directly to constructor:
+- **String URL**: `mailbox_url="redis://localhost:6379"` (unauthenticated only)
+- **MailboxConfig object**: For authenticated/production clusters (see Authentication section)
+- **None**: Uses `REDIS_URL` environment variable
 
 ### Create Your First Agent
 
@@ -121,6 +124,107 @@ class AuthenticatedAgent(BaseAgent):
 **For production clusters with authentication, always use `MailboxConfig`** - URL parsing doesn't support passwords in the URL format.
 
 See `examples/authenticated_agent.py` for a complete example.
+
+---
+
+## 🔍 Cluster Discovery
+
+After your agent starts, it automatically registers on the cluster. Other agents can discover you, and you can discover them:
+
+### Discover All Agents
+
+```python
+# After startup, discover all active agents on the cluster
+await agent.startup()
+
+# List all agent IDs
+all_agents = await agent.discover_agents()
+print(f"Found {len(all_agents)} agents: {all_agents}")
+```
+
+### Get Agent Metadata
+
+```python
+# Get metadata for a specific agent
+agent_info = await agent.get_agent_info("other-agent-id")
+if agent_info:
+    print(f"Agent ID: {agent_info['agent_id']}")
+    print(f"Capabilities: {agent_info['capabilities']}")
+    print(f"State: {agent_info['state']}")
+    print(f"Registered: {agent_info['registered_at']}")
+```
+
+### Find Agents by Capability
+
+```python
+# Find all agents that provide a specific capability
+search_agents = await agent.find_agents_by_capability("search")
+for agent_info in search_agents:
+    print(f"Found search agent: {agent_info['agent_id']}")
+    
+    # Send message to discovered agent
+    await agent.send_message(
+        target=agent_info["agent_id"],
+        message_type="HELP_REQUEST",
+        content={"request": "I need help with search"}
+    )
+```
+
+### Redis Keys Used
+
+The cluster uses these Redis keys for discovery:
+- `beast:agents:all` - Set containing all active agent IDs
+- `beast:agents:{agent_id}` - Hash with agent metadata (expires after 60 seconds)
+
+### Complete Discovery Example
+
+```python
+import asyncio
+from beast_agent import BaseAgent
+from beast_mailbox_core import MailboxConfig
+
+class DiscoveryAgent(BaseAgent):
+    def __init__(self):
+        mailbox_config = MailboxConfig(
+            host="your-redis-host",
+            port=6379,
+            password="your-password",
+            db=0
+        )
+        super().__init__(
+            agent_id="discovery-agent",
+            capabilities=["discover", "communicate"],
+            mailbox_url=mailbox_config
+        )
+    
+    async def on_startup(self) -> None:
+        self.register_handler("HELP_REQUEST", self.handle_help)
+        
+        # Discover all agents on cluster
+        all_agents = await self.discover_agents()
+        self._logger.info(f"Found {len(all_agents)} agents: {all_agents}")
+        
+        # Find agents with specific capability
+        helpers = await self.find_agents_by_capability("help")
+        for helper in helpers:
+            self._logger.info(f"Found helper: {helper['agent_id']}")
+    
+    async def handle_help(self, content: dict) -> None:
+        sender = content.get("sender")
+        self._logger.info(f"Received help request from {sender}")
+
+async def main():
+    agent = DiscoveryAgent()
+    await agent.startup()
+    
+    # Keep running
+    await asyncio.sleep(3600)
+    
+    await agent.shutdown()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
 
 ---
 
