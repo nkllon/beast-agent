@@ -5,31 +5,18 @@ and tests communication.
 """
 
 import asyncio
-import os
-import sys
 from beast_agent import BaseAgent
-from beast_mailbox_core import MailboxConfig
 
 
 class LiveFireTestAgent(BaseAgent):
     """Agent for live-fire testing on production cluster."""
 
     def __init__(self):
-        # Create MailboxConfig for production cluster
-        # Load from environment variables (should be set for production)
-        mailbox_config = MailboxConfig(
-            host=os.getenv("REDIS_HOST", "localhost"),
-            port=int(os.getenv("REDIS_PORT", "6379")),
-            password=os.getenv("REDIS_PASSWORD"),  # Required for authenticated clusters
-            db=int(os.getenv("REDIS_DB", "0")),
-            stream_prefix="mailbox",
-            enable_recovery=True,
-        )
-
+        # BaseAgent automatically reads REDIS_HOST, REDIS_PORT, REDIS_PASSWORD from env vars
         super().__init__(
             agent_id="beast-agent-live-fire",
             capabilities=["testing", "discovery", "communication"],
-            mailbox_url=mailbox_config,
+            mailbox_url=None,  # Auto-configures from REDIS_HOST, REDIS_PORT, REDIS_PASSWORD env vars
         )
 
     async def on_startup(self) -> None:
@@ -164,39 +151,10 @@ class LiveFireTestAgent(BaseAgent):
 
 async def main():
     """Run the live-fire test agent."""
-    # Check environment variables
-    redis_host = os.getenv("REDIS_HOST")
-    redis_port = os.getenv("REDIS_PORT", "6379")
-    redis_password = os.getenv("REDIS_PASSWORD")
-
-    if not redis_host:
-        print("⚠️  REDIS_HOST not set. Using default: localhost")
-        print(
-            "   Set REDIS_HOST, REDIS_PORT, and REDIS_PASSWORD for production cluster"
-        )
-
-    if not redis_password:
-        print("⚠️  REDIS_PASSWORD not set.")
-        print("   This is required for authenticated Redis clusters")
-
-    print(f"\n=== Connecting to Redis ===")
-    print(f"Host: {redis_host or 'localhost'}")
-    print(f"Port: {redis_port}")
-    print(f"Password: {'***' if redis_password else 'NOT SET'}")
-    print()
-
     agent = LiveFireTestAgent()
 
     # Start agent
-    try:
-        await agent.startup()
-    except Exception as e:
-        print(f"❌ Failed to start agent: {e}")
-        print("\nTroubleshooting:")
-        print("  1. Check REDIS_HOST, REDIS_PORT, REDIS_PASSWORD are set correctly")
-        print("  2. Verify Redis is accessible from your network")
-        print("  3. Check firewall rules")
-        sys.exit(1)
+    await agent.startup()
 
     # Keep agent running
     try:

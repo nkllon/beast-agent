@@ -299,7 +299,7 @@ agent = MyAgent(agent_id="custom-agent", capabilities=["capability1"])
 
 ### Required: beast-mailbox-core
 
-**Current Status**: Placeholder (commented out in v0.1.0)  
+**Current Status**: Placeholder (commented out in v0.1.0)
 **v0.2.0 Status**: Integration design complete, ready for implementation
 
 **Integration API** (based on `beast-mailbox-core` v0.4.1):

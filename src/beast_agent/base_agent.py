@@ -115,6 +115,10 @@ class BaseAgent(ABC):
         Note:
             Returns None if beast-mailbox-core is not installed or if mailbox is not configured.
             This allows agents to function without mailbox for basic operations.
+            
+            If mailbox_url is None, checks these environment variables in order:
+            1. REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB (for authenticated clusters)
+            2. REDIS_URL (for simple URL strings)
         """
         try:
             from beast_mailbox_core import MailboxConfig
@@ -123,11 +127,46 @@ class BaseAgent(ABC):
             if isinstance(self._mailbox_url, MailboxConfig):
                 return self._mailbox_url
 
-            # Parse URL string (simple implementation - could be enhanced)
-            # For now, assume redis://host:port format
+            # If mailbox_url is None, check environment variables
             if self._mailbox_url is None:
-                return None
+                # Check for individual Redis env vars (supports authentication)
+                redis_host = os.getenv("REDIS_HOST")
+                if redis_host:
+                    return MailboxConfig(
+                        host=redis_host,
+                        port=int(os.getenv("REDIS_PORT", "6379")),
+                        password=os.getenv("REDIS_PASSWORD"),
+                        db=int(os.getenv("REDIS_DB", "0")),
+                        stream_prefix="mailbox",
+                        enable_recovery=True,
+                    )
+                
+                # Fallback to REDIS_URL (simple URL, no password support)
+                redis_url = os.getenv("REDIS_URL")
+                if not redis_url:
+                    return None
+                
+                # Parse URL string
+                url = redis_url
+                if url.startswith("redis://"):
+                    url = url[8:]  # Remove redis:// prefix
 
+                # Parse host and port
+                if ":" in url:
+                    host, port_str = url.rsplit(":", 1)
+                    port = int(port_str) if port_str.isdigit() else 6379
+                else:
+                    host = url if url else "localhost"
+                    port = 6379
+
+                return MailboxConfig(
+                    host=host,
+                    port=port,
+                    db=0,
+                    stream_prefix="mailbox",
+                )
+
+            # mailbox_url is a string URL - parse it
             url = self._mailbox_url
             if url.startswith("redis://"):
                 url = url[8:]  # Remove redis:// prefix

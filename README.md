@@ -37,16 +37,25 @@ pip install beast-agent
 
 ### Configuration
 
-Configure Redis connection via environment variable (for unauthenticated connections):
+Configure Redis connection via environment variables:
 
+**For authenticated clusters (recommended for production):**
+```bash
+export REDIS_HOST="your-redis-host"
+export REDIS_PORT="6379"
+export REDIS_PASSWORD="your-password"
+export REDIS_DB="0"  # Optional, defaults to 0
+```
+
+**For unauthenticated connections:**
 ```bash
 export REDIS_URL="redis://localhost:6379"
 ```
 
 Or pass directly to constructor:
+- **None** (default): Automatically reads `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `REDIS_DB` from environment variables (supports authentication), or falls back to `REDIS_URL` if not set
 - **String URL**: `mailbox_url="redis://localhost:6379"` (unauthenticated only)
-- **MailboxConfig object**: For authenticated/production clusters (see Authentication section)
-- **None**: Uses `REDIS_URL` environment variable
+- **MailboxConfig object**: For explicit configuration (see Authentication section)
 
 ### Create Your First Agent
 
@@ -119,9 +128,9 @@ class AuthenticatedAgent(BaseAgent):
 **Note**: The `mailbox_url` parameter accepts:
 - **String URL**: `"redis://localhost:6379"` (for unauthenticated connections)
 - **MailboxConfig object**: For authenticated or advanced configurations (recommended for production)
-- **None**: Uses `REDIS_URL` environment variable
+- **None** (default): Automatically reads `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `REDIS_DB` from environment variables (supports authentication), or falls back to `REDIS_URL` if not set
 
-**For production clusters with authentication, always use `MailboxConfig`** - URL parsing doesn't support passwords in the URL format.
+**For production clusters with authentication**, simply set `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` environment variables and use `mailbox_url=None` (the default).
 
 See `examples/authenticated_agent.py` for a complete example.
 
