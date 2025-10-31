@@ -349,16 +349,21 @@ async def test_get_capabilities_metadata():
 
 ### Pre-Deployment Checklist
 
-Before creating a release:
+**Initial Setup (One-Time):**
+- [ ] Configure GitHub secrets using `gh secret set` or GitHub UI:
+  ```bash
+  gh secret set PYPI_API_TOKEN --body "$(grep PYPI_API_TOKEN ~/.env | cut -d= -f2)"
+  gh secret set SONAR_TOKEN --body "$(grep SONAR_TOKEN ~/.env | cut -d= -f2)"
+  ```
+- [ ] Verify secrets are configured: `gh secret list`
+
+**Before Each Release:**
 - [ ] All tests passing (90%+ coverage)
 - [ ] All lint checks passing (black, flake8, mypy, bandit)
 - [ ] SonarCloud Quality Gate: Passed
 - [ ] Documentation updated (README, AGENT.md, docs/)
 - [ ] Version updated in `pyproject.toml`
 - [ ] CHANGELOG.md updated (if maintained)
-- [ ] Secrets configured in GitHub:
-  - [ ] `SONAR_TOKEN` - For SonarCloud analysis
-  - [ ] `PYPI_API_TOKEN` - For PyPI publishing
 
 ### Deployment Workflow
 

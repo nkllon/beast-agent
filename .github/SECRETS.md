@@ -49,9 +49,18 @@ This document lists the secrets that need to be configured in GitHub repository 
 
 After adding secrets, verify they're configured:
 
+**Using GitHub CLI:**
+```bash
+gh secret list
+```
+
+**Using GitHub UI:**
 1. Go to repository Settings → Secrets and variables → Actions
 2. Verify `SONAR_TOKEN` appears in the list
-3. Check that `GITHUB_TOKEN` is shown as "automatically available"
+3. Verify `PYPI_API_TOKEN` appears in the list
+4. Check that `GITHUB_TOKEN` is shown as "automatically available"
+
+**Note:** Secrets should be configured as part of the initial repository setup, not just documented. Use `gh secret set` to configure them programmatically.
 
 ## Testing
 
