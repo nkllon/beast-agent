@@ -37,17 +37,20 @@ class BaseAgent(ABC):
         self,
         agent_id: str,
         capabilities: List[str],
-        mailbox_url: Optional[str] = None,
+        mailbox_url: Optional[Any] = None,
         config: Optional[AgentConfig] = None,
     ):
         """
         Initialize agent with ID, capabilities, and configuration.
 
         Args:
-            agent_id: Unique identifier for this agent
-            capabilities: List of capability names
-            mailbox_url: Optional Redis mailbox URL (defaults to REDIS_URL env var)
-            config: Optional AgentConfig instance (validated on creation)
+            agent_id: Unique identifier for this agent instance
+            capabilities: List of capability names this agent provides
+            mailbox_url: Redis connection configuration. Accepts:
+                - str: Redis URL string (e.g., "redis://localhost:6379") for unauthenticated connections
+                - MailboxConfig: Advanced configuration object with authentication support (recommended for production)
+                - None: Uses REDIS_URL environment variable
+            config: Agent configuration (uses AgentConfig.from_env() if None)
 
         Raises:
             pydantic.ValidationError: If config validation fails
