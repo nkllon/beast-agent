@@ -138,12 +138,20 @@
 - **Must** include examples (simple agent, multi-capability agent)
 - **Must** include API reference
 
-### NFR-5: Packaging
+### NFR-5: Packaging & Deployment
 - **Must** be installable via `pip install beast-agent`
 - **Must** follow semantic versioning (start 0.1.0)
 - **Must** include `pyproject.toml` with metadata
 - **Must** include LICENSE (MIT)
-- **Must** publish to PyPI
+- **Must** publish to PyPI automatically on release
+- **Must** have GitHub Actions workflows for:
+  - Testing on multiple Python versions (3.10, 3.11, 3.12)
+  - Code quality checks (lint, format, type checking, security)
+  - SonarCloud integration (quality analysis)
+  - PyPI publishing (automatic on release)
+- **Must** use Redis service containers for integration tests in CI/CD
+- **Must** enforce 90%+ coverage threshold in CI/CD
+- **Must** require all quality checks to pass before PyPI publishing
 
 ---
 

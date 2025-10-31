@@ -299,20 +299,192 @@ agent = MyAgent(agent_id="custom-agent", capabilities=["capability1"])
 
 ### Required: beast-mailbox-core
 
-**Current Status**: Placeholder (commented out in v0.1.0)
+**Current Status**: Placeholder (commented out in v0.1.0)  
+**v0.2.0 Status**: Integration design complete, ready for implementation
 
-**Planned Integration**:
+**Integration API** (based on `beast-mailbox-core` v0.4.1):
 ```python
-from beast_mailbox_core import MailboxClient
+from beast_mailbox_core import RedisMailboxService, MailboxMessage, MailboxConfig
 
 class BaseAgent:
     async def startup(self):
-        self._mailbox = MailboxClient(self._mailbox_url)
-        await self._mailbox.connect()
-        await self._mailbox.register_agent(self.agent_id, self.capabilities)
+        # Initialize mailbox service
+        mailbox_config = MailboxConfig.from_url(self._mailbox_url)
+        self._mailbox = RedisMailboxService(
+            agent_id=self.agent_id,
+            config=mailbox_config,
+            recovery_callback=self._handle_recovery  # Optional recovery metrics
+        )
+        
+        # Start mailbox service (connects to Redis)
+        await self._mailbox.start()
+        
+        # Register mailbox message handler (routes to BaseAgent handlers)
+        await self._mailbox.register_handler(self._mailbox_message_handler)
 ```
 
-**Design Decision**: Deferred integration until beast-mailbox-core stabilizes
+**Message Routing Flow**:
+1. `RedisMailboxService` receives message → calls registered handler
+2. `BaseAgent._mailbox_message_handler()` receives `MailboxMessage`
+3. Extracts `message_type` from `MailboxMessage.payload`
+4. Routes to `BaseAgent._handlers[message_type]` if registered
+5. Logs warning if no handler registered
+
+**Send Message Flow**:
+```python
+async def send_message(self, target: str, message_type: str, content: Dict[str, Any]) -> str:
+    """Send message via RedisMailboxService."""
+    message_id = await self._mailbox.send_message(
+        recipient=target,
+        payload={"type": message_type, "content": content},
+        message_type="direct_message"
+    )
+    return message_id
+```
+
+**Agent Registration/Discovery**:
+- Agent registration happens automatically when `RedisMailboxService.start()` is called
+- The agent_id is passed to `RedisMailboxService.__init__()` and used for routing
+- Discovery queries handled by `beast-mailbox-core` (via Redis streams)
+- Capabilities are not automatically registered - need to be published separately (v0.2.0)
+
+**Shutdown Flow**:
+```python
+async def shutdown(self):
+    """Stop mailbox service."""
+    if self._mailbox:
+        await self._mailbox.stop()
+```
+
+**Error Handling**:
+- Mailbox connection errors → transition to ERROR state
+- Message send failures → increment error_count, log error
+- Handler exceptions → catch, increment error_count, continue processing
+- Recovery metrics → optional callback for pending message recovery
+
+**Design Decisions**:
+1. **Lazy Initialization**: Mailbox created in `startup()`, not `__init__()`
+2. **Handler Wrapper**: `_mailbox_message_handler()` wraps `MailboxMessage` → extracts payload → routes to BaseAgent handlers
+3. **Message Format**: `payload` contains `{"type": str, "content": dict}` structure
+4. **Error Recovery**: Optional recovery_callback for handling pending message recovery metrics
+
+---
+
+#### v0.2.0 Integration Design (Detailed)
+
+**Date**: 2025-01-27  
+**API Version**: `beast-mailbox-core` v0.4.1  
+**Status**: Design complete, ready for implementation
+
+**Message Handler Integration**:
+
+**Problem**: `RedisMailboxService.register_handler()` expects a handler that receives `MailboxMessage`, but `BaseAgent` handlers expect a plain dictionary.
+
+**Solution**: Create a wrapper method `_mailbox_message_handler()` that:
+1. Receives `MailboxMessage` from mailbox
+2. Extracts `payload` (dict) containing `{"type": str, "content": dict}`
+3. Routes to appropriate `BaseAgent` handler based on `payload["type"]`
+
+```python
+async def _mailbox_message_handler(self, mailbox_message: MailboxMessage) -> None:
+    """Wrapper to route MailboxMessage to BaseAgent handlers."""
+    try:
+        # Extract payload (assumed to contain {"type": str, "content": dict})
+        payload = mailbox_message.payload
+        message_type = payload.get("type")
+        
+        # Route to registered handler
+        if message_type in self._handlers:
+            await self._handlers[message_type](payload.get("content", {}))
+        else:
+            self._logger.warning(f"No handler registered for message type: {message_type}")
+    except Exception as e:
+        self._error_count += 1
+        self._logger.error(f"Error handling mailbox message: {e}", exc_info=True)
+```
+
+**Message Sending Integration**:
+
+```python
+async def send_message(
+    self, 
+    target: str, 
+    message_type: str, 
+    content: Dict[str, Any]
+) -> str:
+    """Send message via RedisMailboxService."""
+    if not self._mailbox:
+        raise RuntimeError("Mailbox not initialized. Call startup() first.")
+    
+    message_id = await self._mailbox.send_message(
+        recipient=target,
+        payload={"type": message_type, "content": content},
+        message_type="direct_message"
+    )
+    
+    self._logger.debug(f"Sent {message_type} to {target}: {message_id}")
+    return message_id
+```
+
+**Configuration Integration**:
+
+```python
+from beast_mailbox_core import MailboxConfig
+
+def _create_mailbox_config(self) -> MailboxConfig:
+    """Create MailboxConfig from URL or env vars."""
+    if isinstance(self._mailbox_url, MailboxConfig):
+        return self._mailbox_url
+    
+    # Parse URL or use MailboxConfig.from_url()
+    return MailboxConfig.from_url(self._mailbox_url)
+```
+
+**Discovery Integration (v0.2.0)**:
+
+**Current Status**: `beast-mailbox-core` handles agent routing automatically via agent_id.  
+**Future**: Capability-based discovery requires additional integration:
+- Publish capabilities to Redis on startup
+- Query capability registry for discovery
+- Subscribe to agent join/leave events
+
+**Design Decision**: Defer full discovery to v0.3.0, focus on message routing in v0.2.0.
+
+**Error Handling Integration**:
+
+**Connection Errors**:
+- Catch exceptions during `start()` → transition to ERROR state
+- Log connection failures with context
+
+**Message Send Errors**:
+- Catch `send_message()` exceptions → increment error_count
+- Return error info or raise depending on context
+
+**Message Receive Errors**:
+- Catch handler exceptions in `_mailbox_message_handler()`
+- Log error, increment error_count, continue processing
+
+**Recovery Metrics** (Optional):
+```python
+async def _handle_recovery(self, metrics: RecoveryMetrics) -> None:
+    """Handle pending message recovery metrics."""
+    self._logger.info(
+        f"Recovery metrics: {metrics.recovered_count} messages recovered, "
+        f"{metrics.failed_count} failed"
+    )
+    # Update agent health status if needed
+```
+
+**v0.2.0 Implementation Checklist**:
+
+- [x] Update `BaseAgent.startup()` to initialize `RedisMailboxService`
+- [x] Implement `_mailbox_message_handler()` wrapper
+- [x] Update `send_message()` to use `RedisMailboxService.send_message()`
+- [x] Update `shutdown()` to call `RedisMailboxService.stop()`
+- [x] Add mailbox connection error handling
+- [x] Add recovery_callback support (optional)
+- [x] Create integration tests with real Redis
+- [ ] Update documentation with integration examples
 
 ### Optional: beast-observability
 

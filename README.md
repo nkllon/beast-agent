@@ -161,7 +161,7 @@ print(f"State: {health.state}")
 ## 🧪 Testing
 
 ```bash
-# Run tests
+# Run all tests
 pytest
 
 # Run with coverage
@@ -169,7 +169,29 @@ pytest --cov=src/beast_agent --cov-report=html
 
 # Run specific test
 pytest tests/test_base_agent.py
+
+# Run integration tests (requires Redis and beast-mailbox-core)
+# Note: Integration tests are automatically skipped if dependencies unavailable
+pytest tests/test_mailbox_integration.py
+
+# Run all tests including integration (if Redis available)
+pytest tests/
 ```
+
+### Integration Testing
+
+Integration tests require:
+- **Redis**: Running locally (via Docker) or in CI (via service containers)
+- **beast-mailbox-core**: Installed as dependency
+
+**Local Testing:**
+- Redis Docker container is automatically managed via `conftest.py` fixtures
+- Tests gracefully skip if Redis/Docker unavailable
+- Uses separate test database (db=15) to avoid conflicts
+
+**CI Testing:**
+- Redis service container automatically provided in GitHub Actions
+- Integration tests run against real Redis in CI
 
 ---
 

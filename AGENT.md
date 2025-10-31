@@ -304,13 +304,120 @@ async def test_get_capabilities_metadata():
 
 ### CI/CD Pipeline
 
-GitHub Actions runs on every push and PR:
-1. Install dependencies
-2. Run tests with coverage
-3. SonarCloud quality scan
-4. Report results
+**Workflows Configured:**
+1. **Test Suite** (`.github/workflows/test.yml`) - Runs on push/PR/release
+   - Tests on Python 3.10, 3.11, 3.12 (matrix strategy)
+   - Uses Redis service container for integration tests
+   - Enforces 90%+ coverage threshold
+   - Runs `pytest` with coverage reporting
+
+2. **Lint** (`.github/workflows/lint.yml`) - Runs on push/PR/release
+   - Code quality checks (black, flake8, mypy, bandit)
+   - Format validation
+   - Type checking
+   - Security scanning
+
+3. **SonarCloud Analysis** (`.github/workflows/sonarcloud.yml`) - Runs on push/PR/release
+   - Code quality analysis
+   - Coverage reporting to SonarCloud
+   - Uses `SONAR_TOKEN` secret
+   - Requires Redis service container
+
+4. **Publish to PyPI** (`.github/workflows/publish.yml`) - Runs on release published
+   - Builds package using `python -m build`
+   - Validates package with `twine check`
+   - Publishes to PyPI using `PYPI_API_TOKEN` secret
+   - Only triggers on release with tag
 
 **Quality Gate must pass before merge.**
+
+**Deployment Process:**
+1. Create a release with a tag (e.g., `v0.1.0`)
+2. All workflows automatically trigger:
+   - Test suite runs on multiple Python versions
+   - Lint checks pass
+   - SonarCloud analysis runs
+   - Package is built and published to PyPI
+3. Verify deployment:
+   - Check PyPI: https://pypi.org/project/beast-agent/
+   - Verify package installs: `pip install beast-agent`
+   - Check SonarCloud dashboard for quality metrics
+
+---
+
+## 🚀 Deployment Procedures
+
+### Pre-Deployment Checklist
+
+Before creating a release:
+- [ ] All tests passing (90%+ coverage)
+- [ ] All lint checks passing (black, flake8, mypy, bandit)
+- [ ] SonarCloud Quality Gate: Passed
+- [ ] Documentation updated (README, AGENT.md, docs/)
+- [ ] Version updated in `pyproject.toml`
+- [ ] CHANGELOG.md updated (if maintained)
+- [ ] Secrets configured in GitHub:
+  - [ ] `SONAR_TOKEN` - For SonarCloud analysis
+  - [ ] `PYPI_API_TOKEN` - For PyPI publishing
+
+### Deployment Workflow
+
+**Step 1: Create Release**
+```bash
+# Tag the release
+git tag -a v0.1.0 -m "Release v0.1.0: BaseAgent implementation"
+
+# Push tag (triggers release workflow)
+git push origin v0.1.0
+
+# OR create release via GitHub UI:
+# 1. Go to repository → Releases → "Create a new release"
+# 2. Tag: v0.1.0
+# 3. Title: Release v0.1.0
+# 4. Description: List of changes
+# 5. Click "Publish release"
+```
+
+**Step 2: Workflows Execute Automatically**
+
+When a release is published, these workflows run in parallel:
+1. **test.yml** - Runs tests on Python 3.10, 3.11, 3.12
+2. **lint.yml** - Code quality checks
+3. **sonarcloud.yml** - Code quality analysis
+4. **publish.yml** - Builds and publishes to PyPI
+
+**Step 3: Verify Deployment**
+
+1. Check GitHub Actions: https://github.com/nkllon/beast-agent/actions
+2. Verify PyPI package: https://pypi.org/project/beast-agent/
+3. Test installation: `pip install beast-agent`
+4. Check SonarCloud: https://sonarcloud.io/dashboard?id=nkllon_beast-agent
+
+### Required Secrets
+
+See `.github/SECRETS.md` for complete secret configuration:
+
+- **`SONAR_TOKEN`** - SonarCloud authentication (required for SonarCloud workflow)
+- **`PYPI_API_TOKEN`** - PyPI authentication (required for PyPI publishing)
+- **`GITHUB_TOKEN`** - Automatically provided by GitHub Actions
+
+### CI/CD Configuration Files
+
+- **`.github/workflows/test.yml`** - Test suite on multiple Python versions
+- **`.github/workflows/lint.yml`** - Code quality checks
+- **`.github/workflows/sonarcloud.yml`** - SonarCloud integration
+- **`.github/workflows/publish.yml`** - PyPI publishing
+- **`sonar-project.properties`** - SonarCloud project configuration
+- **`.github/SECRETS.md`** - Secret configuration documentation
+
+### Deployment Requirements (NFR-5)
+
+From `.kiro/specs/requirements.md`:
+- ✅ Package must be installable via `pip install beast-agent`
+- ✅ Must follow semantic versioning (0.1.0, 0.2.0, 1.0.0, etc.)
+- ✅ Must include `pyproject.toml` with metadata
+- ✅ Must include LICENSE (MIT)
+- ✅ Must publish to PyPI (automated via release workflow)
 
 ---
 
@@ -327,10 +434,16 @@ GitHub Actions runs on every push and PR:
 - [x] Message routing (register_handler, handle_message)
 - [x] Configuration management (env vars, constructor args)
 - [x] Logging (per-agent logger)
-- [x] Unit tests (lifecycle, decorators)
+- [x] Pydantic integration (AgentConfig, Message models)
+- [x] beast-mailbox-core integration (v0.2.0)
+- [x] Unit tests (lifecycle, decorators, models)
+- [x] Integration tests (mailbox integration with Redis)
+- [x] Test coverage: 92% (exceeds 90% requirement)
 - [x] SonarCloud integration
-- [x] GitHub Actions workflow
-- [x] Documentation (README, specs, examples)
+- [x] GitHub Actions workflows (test, lint, sonarcloud, publish)
+- [x] PyPI publishing workflow
+- [x] Redis integration testing infrastructure
+- [x] Documentation (README, specs, examples, docs/)
 
 ### ⏳ Planned (v0.2.0)
 
