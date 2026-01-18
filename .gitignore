@@ -43,3 +43,9 @@ ENV/
 .DS_Store
 Thumbs.db
 
+
+# System and IDE exclusions
+**/.DS_Store
+.AppleDouble
+.LSOverride
+*.pyc
