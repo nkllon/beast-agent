@@ -3,8 +3,9 @@
 import json
 import logging
 import os
+import uuid
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from beast_agent.models import AgentConfig
@@ -39,6 +40,7 @@ class BaseAgent(ABC):
         capabilities: List[str],
         mailbox_url: Optional[Any] = None,
         config: Optional[AgentConfig] = None,
+        capability_graph_ttl: Optional[str] = None,
     ):
         """
         Initialize agent with ID, capabilities, and configuration.
@@ -51,12 +53,14 @@ class BaseAgent(ABC):
                 - MailboxConfig: Advanced configuration object with authentication support (recommended for production)
                 - None: Uses REDIS_URL environment variable
             config: Agent configuration (uses AgentConfig.from_env() if None)
+            capability_graph_ttl: Optional RDF/Turtle capability graph announced on Beast Network
 
         Raises:
             pydantic.ValidationError: If config validation fails
         """
         self.agent_id = agent_id
         self.capabilities = capabilities
+        self.capability_graph_ttl = capability_graph_ttl
 
         # Validate and load configuration
         if config is None:
@@ -115,7 +119,7 @@ class BaseAgent(ABC):
         Note:
             Returns None if beast-mailbox-core is not installed or if mailbox is not configured.
             This allows agents to function without mailbox for basic operations.
-            
+
             Simply passes through what the user provided - all Redis-specific configuration
             and environment variable reading should be handled by beast-mailbox-core.
         """
@@ -150,7 +154,7 @@ class BaseAgent(ABC):
         # Initialize mailbox service (beast-mailbox-core handles all Redis configuration)
         # Pass through MailboxConfig if provided, otherwise None - let beast-mailbox-core handle it
         self._mailbox_config = self._create_mailbox_config()
-        
+
         try:
             from beast_mailbox_core import RedisMailboxService
 
@@ -159,9 +163,7 @@ class BaseAgent(ABC):
                 agent_id=self.agent_id,
                 config=self._mailbox_config,  # MailboxConfig or None - beast-mailbox-core handles it
                 recovery_callback=(
-                    self._handle_recovery
-                    if hasattr(self, "_handle_recovery")
-                    else None
+                    self._handle_recovery if hasattr(self, "_handle_recovery") else None
                 ),
             )
 
@@ -188,9 +190,7 @@ class BaseAgent(ABC):
             )
             # Continue without mailbox - agent can function without it
         except Exception as e:
-            self._logger.error(
-                f"Error starting mailbox service: {e}", exc_info=True
-            )
+            self._logger.error(f"Error starting mailbox service: {e}", exc_info=True)
             self._state = AgentState.ERROR
             raise
 
@@ -266,17 +266,22 @@ class BaseAgent(ABC):
             except Exception:
                 pass
 
+        metadata: Dict[str, Any] = {
+            "agent_id": self.agent_id,
+            "capabilities": self.capabilities,
+            "mailbox_connected": self._mailbox is not None,
+            "has_capability_graph_ttl": self.capability_graph_ttl is not None,
+        }
+        if self.capability_graph_ttl is not None:
+            metadata["capability_graph_ttl"] = self.capability_graph_ttl
+
         return HealthStatus(
             healthy=(self._state in [AgentState.READY, AgentState.RUNNING]),
             state=self._state,
             last_heartbeat=self._last_heartbeat,
             message_queue_size=message_queue_size,
             error_count=self._error_count,
-            metadata={
-                "agent_id": self.agent_id,
-                "capabilities": self.capabilities,
-                "mailbox_connected": self._mailbox is not None,
-            },
+            metadata=metadata,
         )
 
     def ready(self) -> bool:
@@ -428,6 +433,11 @@ class BaseAgent(ABC):
             host = self._mailbox_config.host
             port = self._mailbox_config.port
             db = self._mailbox_config.db if hasattr(self._mailbox_config, "db") else 0
+            password = (
+                self._mailbox_config.password
+                if hasattr(self._mailbox_config, "password")
+                else None
+            )
 
             # Note: host will be from mailbox config - localhost is fine for single-node clusters,
             # but in production multi-node clusters, it will be the actual Redis cluster endpoint
@@ -438,11 +448,15 @@ class BaseAgent(ABC):
 
             # Create Redis connection using exact same config as mailbox
             redis_client = redis.Redis(
-                host=host, port=port, db=db, decode_responses=True
+                host=host,
+                port=port,
+                db=db,
+                password=password,
+                decode_responses=True,
             )
 
             # Register agent name with metadata
-            agent_info = {
+            agent_info: Dict[str, Any] = {
                 "agent_id": self.agent_id,
                 "capabilities": self.capabilities,
                 "registered_at": datetime.now().isoformat(),
@@ -452,6 +466,8 @@ class BaseAgent(ABC):
                     else str(self._state)
                 ),
             }
+            if self.capability_graph_ttl is not None:
+                agent_info["capability_graph_ttl"] = self.capability_graph_ttl
 
             # Set with expiration (heartbeat-based - 60 seconds)
             # Agents should heartbeat to refresh this
@@ -464,6 +480,31 @@ class BaseAgent(ABC):
 
             # Also add to set of all agent IDs for quick discovery
             await redis_client.sadd("beast:agents:all", self.agent_id)
+
+            # Publish standard Beast envelope on global announcements stream
+            announcement_payload: Dict[str, Any] = {
+                "type": "CAPABILITY_ANNOUNCEMENT",
+                "agent_id": self.agent_id,
+                "capabilities": self.capabilities,
+                "state": agent_info["state"],
+            }
+            if self.capability_graph_ttl is not None:
+                announcement_payload["capability_graph_ttl"] = self.capability_graph_ttl
+
+            announcement_envelope = {
+                "header": {
+                    "sender": self.agent_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "id": str(uuid.uuid4()),
+                },
+                "payload": announcement_payload,
+            }
+            await redis_client.xadd(
+                "beast:stream:global:announcements",
+                {"envelope": json.dumps(announcement_envelope, sort_keys=True)},
+                maxlen=10000,
+                approximate=True,
+            )
 
             await redis_client.aclose()
 
