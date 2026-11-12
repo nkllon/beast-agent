@@ -19,9 +19,12 @@ class NameRegistrationTestAgent(BaseAgent):
         agent_id: str,
         mailbox_config=None,
         capability_graph_ttl: str | None = None,
+        registration_heartbeat_interval: float = 20.0,
     ):
         """Initialize test agent with optional mailbox config and Turtle capability graph."""
-        kwargs = {}
+        kwargs: dict = {
+            "registration_heartbeat_interval": registration_heartbeat_interval,
+        }
         if capability_graph_ttl is not None:
             kwargs["capability_graph_ttl"] = capability_graph_ttl
         if mailbox_config:
@@ -283,6 +286,7 @@ SAMPLE_CAPABILITY_TTL = """\
     bh:driverId "beast-peer" ;
     bh:trustTier bh:RuntimeSelfAnnounced ;
     bh:defaultPosture bh:ObserveOnly ;
+    bh:supportsPosture bh:ObserveOnly ;
     bh:hasCapability bh:RepoFreePrompt .
 """
 
@@ -361,6 +365,48 @@ async def test_agent_registration_publishes_capability_graph_ttl_and_announcemen
         assert latest["payload"]["type"] == "CAPABILITY_ANNOUNCEMENT"
         assert latest["payload"]["capability_graph_ttl"] == SAMPLE_CAPABILITY_TTL
         assert latest["payload"]["capabilities"] == ["test"]
+    finally:
+        await agent.shutdown()
+        await redis_client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    not pytest.importorskip("beast_mailbox_core"),
+    reason="beast-mailbox-core not available",
+)
+async def test_agent_registration_heartbeat_refreshes_ttl(
+    mailbox_config, redis_available
+):
+    """Background heartbeat refreshes beast:agents:<id> TTL without spamming announcements."""
+    if not redis_available:
+        pytest.skip("Redis not available")
+
+    import redis.asyncio as redis
+
+    redis_client = redis.Redis(
+        host=mailbox_config.host,
+        port=mailbox_config.port,
+        db=mailbox_config.db if hasattr(mailbox_config, "db") else 0,
+        decode_responses=True,
+    )
+    stream_key = "beast:stream:global:announcements"
+    agent = NameRegistrationTestAgent(
+        "test-hb-refresh",
+        mailbox_config=mailbox_config,
+        capability_graph_ttl=SAMPLE_CAPABILITY_TTL.replace(
+            "test-ttl-reg", "test-hb-refresh"
+        ),
+        registration_heartbeat_interval=0.2,
+    )
+    await agent.startup()
+    try:
+        after_start_len = await redis_client.xlen(stream_key)
+        await redis_client.expire("beast:agents:test-hb-refresh", 2)
+        await asyncio.sleep(0.45)
+        refreshed_ttl = await redis_client.ttl("beast:agents:test-hb-refresh")
+        assert refreshed_ttl > 10
+        assert await redis_client.xlen(stream_key) == after_start_len
     finally:
         await agent.shutdown()
         await redis_client.aclose()
