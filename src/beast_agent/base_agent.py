@@ -1,10 +1,13 @@
 """Base agent class for all Beast Mode agents."""
 
+import asyncio
+import contextlib
 import json
 import logging
 import os
+import uuid
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from beast_agent.models import AgentConfig
@@ -39,6 +42,8 @@ class BaseAgent(ABC):
         capabilities: List[str],
         mailbox_url: Optional[Any] = None,
         config: Optional[AgentConfig] = None,
+        capability_graph_ttl: Optional[str] = None,
+        registration_heartbeat_interval: float = 20.0,
     ):
         """
         Initialize agent with ID, capabilities, and configuration.
@@ -51,12 +56,17 @@ class BaseAgent(ABC):
                 - MailboxConfig: Advanced configuration object with authentication support (recommended for production)
                 - None: Uses REDIS_URL environment variable
             config: Agent configuration (uses AgentConfig.from_env() if None)
+            capability_graph_ttl: Optional RDF/Turtle capability graph announced on Beast Network
 
         Raises:
             pydantic.ValidationError: If config validation fails
         """
         self.agent_id = agent_id
         self.capabilities = capabilities
+        self.capability_graph_ttl = capability_graph_ttl
+        self.registration_heartbeat_interval = max(
+            0.05, float(registration_heartbeat_interval)
+        )
 
         # Validate and load configuration
         if config is None:
@@ -80,6 +90,7 @@ class BaseAgent(ABC):
         self._mailbox_url = mailbox_url
         self._mailbox: Optional["RedisMailboxService"] = None
         self._mailbox_config: Optional["MailboxConfig"] = None
+        self._registration_heartbeat_task: Optional[asyncio.Task[None]] = None
 
     def _setup_logging(self) -> logging.Logger:
         """Setup logging for agent."""
@@ -115,7 +126,7 @@ class BaseAgent(ABC):
         Note:
             Returns None if beast-mailbox-core is not installed or if mailbox is not configured.
             This allows agents to function without mailbox for basic operations.
-            
+
             Simply passes through what the user provided - all Redis-specific configuration
             and environment variable reading should be handled by beast-mailbox-core.
         """
@@ -150,7 +161,7 @@ class BaseAgent(ABC):
         # Initialize mailbox service (beast-mailbox-core handles all Redis configuration)
         # Pass through MailboxConfig if provided, otherwise None - let beast-mailbox-core handle it
         self._mailbox_config = self._create_mailbox_config()
-        
+
         try:
             from beast_mailbox_core import RedisMailboxService
 
@@ -159,9 +170,7 @@ class BaseAgent(ABC):
                 agent_id=self.agent_id,
                 config=self._mailbox_config,  # MailboxConfig or None - beast-mailbox-core handles it
                 recovery_callback=(
-                    self._handle_recovery
-                    if hasattr(self, "_handle_recovery")
-                    else None
+                    self._handle_recovery if hasattr(self, "_handle_recovery") else None
                 ),
             )
 
@@ -181,16 +190,18 @@ class BaseAgent(ABC):
             self._logger.info(f"Mailbox service started for agent {self.agent_id}")
 
             # Register agent name on the cluster for discovery
-            await self._register_agent_name()
+            await self._register_agent_name(announce_to_stream=True)
+            if self._mailbox_config is not None:
+                self._registration_heartbeat_task = asyncio.create_task(
+                    self._registration_heartbeat_loop()
+                )
         except ImportError:
             self._logger.warning(
                 "beast-mailbox-core not installed - continuing without mailbox"
             )
             # Continue without mailbox - agent can function without it
         except Exception as e:
-            self._logger.error(
-                f"Error starting mailbox service: {e}", exc_info=True
-            )
+            self._logger.error(f"Error starting mailbox service: {e}", exc_info=True)
             self._state = AgentState.ERROR
             raise
 
@@ -222,6 +233,12 @@ class BaseAgent(ABC):
         self._state = AgentState.STOPPING
 
         await self.on_shutdown()
+
+        if self._registration_heartbeat_task is not None:
+            self._registration_heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._registration_heartbeat_task
+            self._registration_heartbeat_task = None
 
         # Unregister agent name from cluster
         await self._unregister_agent_name()
@@ -266,17 +283,22 @@ class BaseAgent(ABC):
             except Exception:
                 pass
 
+        metadata: Dict[str, Any] = {
+            "agent_id": self.agent_id,
+            "capabilities": self.capabilities,
+            "mailbox_connected": self._mailbox is not None,
+            "has_capability_graph_ttl": self.capability_graph_ttl is not None,
+        }
+        if self.capability_graph_ttl is not None:
+            metadata["capability_graph_ttl"] = self.capability_graph_ttl
+
         return HealthStatus(
             healthy=(self._state in [AgentState.READY, AgentState.RUNNING]),
             state=self._state,
             last_heartbeat=self._last_heartbeat,
             message_queue_size=message_queue_size,
             error_count=self._error_count,
-            metadata={
-                "agent_id": self.agent_id,
-                "capabilities": self.capabilities,
-                "mailbox_connected": self._mailbox is not None,
-            },
+            metadata=metadata,
         )
 
     def ready(self) -> bool:
@@ -399,7 +421,17 @@ class BaseAgent(ABC):
             f"in {metrics.batches_processed} batches"
         )
 
-    async def _register_agent_name(self) -> None:
+    async def _registration_heartbeat_loop(self) -> None:
+        """Periodically refresh cluster registration TTL while the agent is alive."""
+        try:
+            while True:
+                await asyncio.sleep(self.registration_heartbeat_interval)
+                await self._register_agent_name(announce_to_stream=False)
+                self._last_heartbeat = datetime.now()
+        except asyncio.CancelledError:
+            raise
+
+    async def _register_agent_name(self, *, announce_to_stream: bool = True) -> None:
         """Register agent name on the cluster for discovery.
 
         Publishes agent_id to Redis so other agents can discover it.
@@ -428,6 +460,11 @@ class BaseAgent(ABC):
             host = self._mailbox_config.host
             port = self._mailbox_config.port
             db = self._mailbox_config.db if hasattr(self._mailbox_config, "db") else 0
+            password = (
+                self._mailbox_config.password
+                if hasattr(self._mailbox_config, "password")
+                else None
+            )
 
             # Note: host will be from mailbox config - localhost is fine for single-node clusters,
             # but in production multi-node clusters, it will be the actual Redis cluster endpoint
@@ -438,34 +475,66 @@ class BaseAgent(ABC):
 
             # Create Redis connection using exact same config as mailbox
             redis_client = redis.Redis(
-                host=host, port=port, db=db, decode_responses=True
+                host=host,
+                port=port,
+                db=db,
+                password=password,
+                decode_responses=True,
             )
+            try:
+                # Register agent name with metadata
+                agent_info: Dict[str, Any] = {
+                    "agent_id": self.agent_id,
+                    "capabilities": self.capabilities,
+                    "registered_at": datetime.now().isoformat(),
+                    "state": (
+                        self._state.value
+                        if hasattr(self._state, "value")
+                        else str(self._state)
+                    ),
+                }
+                if self.capability_graph_ttl is not None:
+                    agent_info["capability_graph_ttl"] = self.capability_graph_ttl
 
-            # Register agent name with metadata
-            agent_info = {
-                "agent_id": self.agent_id,
-                "capabilities": self.capabilities,
-                "registered_at": datetime.now().isoformat(),
-                "state": (
-                    self._state.value
-                    if hasattr(self._state, "value")
-                    else str(self._state)
-                ),
-            }
+                # Set with expiration (heartbeat-based - 60 seconds)
+                key = f"beast:agents:{self.agent_id}"
+                await redis_client.set(
+                    key,
+                    json.dumps(agent_info),
+                    ex=60,
+                )
 
-            # Set with expiration (heartbeat-based - 60 seconds)
-            # Agents should heartbeat to refresh this
-            key = f"beast:agents:{self.agent_id}"
-            await redis_client.setex(
-                key,
-                60,  # Expire in 60 seconds (should be refreshed by heartbeat)
-                json.dumps(agent_info),
-            )
+                # Also add to set of all agent IDs for quick discovery
+                await redis_client.sadd("beast:agents:all", self.agent_id)
 
-            # Also add to set of all agent IDs for quick discovery
-            await redis_client.sadd("beast:agents:all", self.agent_id)
+                if announce_to_stream:
+                    announcement_payload: Dict[str, Any] = {
+                        "type": "CAPABILITY_ANNOUNCEMENT",
+                        "agent_id": self.agent_id,
+                        "capabilities": self.capabilities,
+                        "state": agent_info["state"],
+                    }
+                    if self.capability_graph_ttl is not None:
+                        announcement_payload["capability_graph_ttl"] = (
+                            self.capability_graph_ttl
+                        )
 
-            await redis_client.aclose()
+                    announcement_envelope = {
+                        "header": {
+                            "sender": self.agent_id,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "id": str(uuid.uuid4()),
+                        },
+                        "payload": announcement_payload,
+                    }
+                    await redis_client.xadd(
+                        "beast:stream:global:announcements",
+                        {"envelope": json.dumps(announcement_envelope, sort_keys=True)},
+                        maxlen=10000,
+                        approximate=True,
+                    )
+            finally:
+                await redis_client.aclose()
 
             self._logger.debug(f"Registered agent name on cluster: {self.agent_id}")
         except ImportError:
@@ -511,15 +580,15 @@ class BaseAgent(ABC):
             redis_client = redis.Redis(
                 host=host, port=port, db=db, password=password, decode_responses=True
             )
+            try:
+                # Remove agent name from discovery
+                key = f"beast:agents:{self.agent_id}"
+                await redis_client.delete(key)
 
-            # Remove agent name from discovery
-            key = f"beast:agents:{self.agent_id}"
-            await redis_client.delete(key)
-
-            # Remove from set of all agents
-            await redis_client.srem("beast:agents:all", self.agent_id)
-
-            await redis_client.aclose()
+                # Remove from set of all agents
+                await redis_client.srem("beast:agents:all", self.agent_id)
+            finally:
+                await redis_client.aclose()
 
             self._logger.debug(f"Unregistered agent name from cluster: {self.agent_id}")
         except ImportError:
@@ -551,11 +620,10 @@ class BaseAgent(ABC):
             redis_client = redis.Redis(
                 host=host, port=port, db=db, decode_responses=True
             )
-
-            # Get all agent IDs from the set
-            agent_ids = await redis_client.smembers("beast:agents:all")
-
-            await redis_client.aclose()
+            try:
+                agent_ids = await redis_client.smembers("beast:agents:all")
+            finally:
+                await redis_client.aclose()
 
             return list(agent_ids) if agent_ids else []
         except ImportError:
@@ -590,12 +658,11 @@ class BaseAgent(ABC):
             redis_client = redis.Redis(
                 host=host, port=port, db=db, decode_responses=True
             )
-
-            # Get agent metadata
-            key = f"beast:agents:{agent_id}"
-            agent_info_str = await redis_client.get(key)
-
-            await redis_client.aclose()
+            try:
+                key = f"beast:agents:{agent_id}"
+                agent_info_str = await redis_client.get(key)
+            finally:
+                await redis_client.aclose()
 
             if agent_info_str:
                 return json.loads(agent_info_str)

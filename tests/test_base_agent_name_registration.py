@@ -14,14 +14,28 @@ from beast_agent import BaseAgent
 class NameRegistrationTestAgent(BaseAgent):
     """Test agent for name registration tests."""
 
-    def __init__(self, agent_id: str, mailbox_config=None):
-        """Initialize test agent with optional mailbox config."""
+    def __init__(
+        self,
+        agent_id: str,
+        mailbox_config=None,
+        capability_graph_ttl: str | None = None,
+        registration_heartbeat_interval: float = 20.0,
+    ):
+        """Initialize test agent with optional mailbox config and Turtle capability graph."""
+        kwargs: dict = {
+            "registration_heartbeat_interval": registration_heartbeat_interval,
+        }
+        if capability_graph_ttl is not None:
+            kwargs["capability_graph_ttl"] = capability_graph_ttl
         if mailbox_config:
             super().__init__(
-                agent_id=agent_id, capabilities=["test"], mailbox_url=mailbox_config
+                agent_id=agent_id,
+                capabilities=["test"],
+                mailbox_url=mailbox_config,
+                **kwargs,
             )
         else:
-            super().__init__(agent_id=agent_id, capabilities=["test"])
+            super().__init__(agent_id=agent_id, capabilities=["test"], **kwargs)
 
     async def on_startup(self) -> None:
         """Test agent startup hook."""
@@ -260,3 +274,139 @@ async def test_agent_registration_uses_mailbox_connection(
 
     await redis_client.aclose()
     await agent.shutdown()
+
+
+SAMPLE_CAPABILITY_TTL = """\
+@prefix bh: <https://nkllon.com/ontology/beast-harness#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:beast:endpoint:test-ttl-reg> a bh:AgentEndpoint ;
+    rdfs:label "test-ttl-reg" ;
+    bh:endpointId "test-ttl-reg" ;
+    bh:driverId "beast-peer" ;
+    bh:trustTier bh:RuntimeSelfAnnounced ;
+    bh:defaultPosture bh:ObserveOnly ;
+    bh:supportsPosture bh:ObserveOnly ;
+    bh:hasCapability bh:RepoFreePrompt .
+"""
+
+
+def test_capability_graph_ttl_health_metadata_without_mailbox():
+    """BaseAgent accepts optional capability_graph_ttl and surfaces it in health metadata."""
+    agent = NameRegistrationTestAgent(
+        "test-ttl-local",
+        capability_graph_ttl=SAMPLE_CAPABILITY_TTL,
+    )
+    assert agent.capability_graph_ttl == SAMPLE_CAPABILITY_TTL
+    status = agent.health_check()
+    assert status.metadata["has_capability_graph_ttl"] is True
+    assert status.metadata["capability_graph_ttl"] == SAMPLE_CAPABILITY_TTL
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    not pytest.importorskip("beast_mailbox_core"),
+    reason="beast-mailbox-core not available",
+)
+async def test_agent_registration_publishes_capability_graph_ttl_and_announcement(
+    mailbox_config, redis_available
+):
+    """Startup registers capability_graph_ttl in Redis and publishes to announcements stream."""
+    if not redis_available:
+        pytest.skip("Redis not available")
+
+    import redis.asyncio as redis
+
+    redis_client = redis.Redis(
+        host=mailbox_config.host,
+        port=mailbox_config.port,
+        db=mailbox_config.db if hasattr(mailbox_config, "db") else 0,
+        decode_responses=True,
+    )
+    stream_key = "beast:stream:global:announcements"
+    before_len = await redis_client.xlen(stream_key)
+
+    agent = NameRegistrationTestAgent(
+        "test-ttl-reg",
+        mailbox_config=mailbox_config,
+        capability_graph_ttl=SAMPLE_CAPABILITY_TTL,
+    )
+    await agent.startup()
+    await asyncio.sleep(0.1)
+
+    try:
+        raw_info = await redis_client.get("beast:agents:test-ttl-reg")
+        assert raw_info is not None
+        info = json.loads(raw_info)
+        assert info["agent_id"] == "test-ttl-reg"
+        assert info["capabilities"] == ["test"]
+        assert info["capability_graph_ttl"] == SAMPLE_CAPABILITY_TTL
+
+        # Legacy flat capability lookup must remain backwards-compatible
+        matches = await agent.find_agents_by_capability("test")
+        assert any(m["agent_id"] == "test-ttl-reg" for m in matches)
+
+        # Global announcement stream must contain the CAPABILITY_ANNOUNCEMENT envelope
+        after_entries = await redis_client.xrevrange(stream_key, count=10)
+        assert (
+            len(after_entries) > 0 and await redis_client.xlen(stream_key) > before_len
+        )
+        matching_envelopes = []
+        for _entry_id, fields in after_entries:
+            envelope_raw = fields.get("envelope")
+            if envelope_raw:
+                env = json.loads(envelope_raw)
+                if env.get("header", {}).get("sender") == "test-ttl-reg":
+                    matching_envelopes.append(env)
+        assert (
+            matching_envelopes
+        ), "Expected CAPABILITY_ANNOUNCEMENT on announcements stream"
+        latest = matching_envelopes[0]
+        assert latest["payload"]["type"] == "CAPABILITY_ANNOUNCEMENT"
+        assert latest["payload"]["capability_graph_ttl"] == SAMPLE_CAPABILITY_TTL
+        assert latest["payload"]["capabilities"] == ["test"]
+    finally:
+        await agent.shutdown()
+        await redis_client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    not pytest.importorskip("beast_mailbox_core"),
+    reason="beast-mailbox-core not available",
+)
+async def test_agent_registration_heartbeat_refreshes_ttl(
+    mailbox_config, redis_available
+):
+    """Background heartbeat refreshes beast:agents:<id> TTL without spamming announcements."""
+    if not redis_available:
+        pytest.skip("Redis not available")
+
+    import redis.asyncio as redis
+
+    redis_client = redis.Redis(
+        host=mailbox_config.host,
+        port=mailbox_config.port,
+        db=mailbox_config.db if hasattr(mailbox_config, "db") else 0,
+        decode_responses=True,
+    )
+    stream_key = "beast:stream:global:announcements"
+    agent = NameRegistrationTestAgent(
+        "test-hb-refresh",
+        mailbox_config=mailbox_config,
+        capability_graph_ttl=SAMPLE_CAPABILITY_TTL.replace(
+            "test-ttl-reg", "test-hb-refresh"
+        ),
+        registration_heartbeat_interval=0.2,
+    )
+    await agent.startup()
+    try:
+        after_start_len = await redis_client.xlen(stream_key)
+        await redis_client.expire("beast:agents:test-hb-refresh", 2)
+        await asyncio.sleep(0.45)
+        refreshed_ttl = await redis_client.ttl("beast:agents:test-hb-refresh")
+        assert refreshed_ttl > 10
+        assert await redis_client.xlen(stream_key) == after_start_len
+    finally:
+        await agent.shutdown()
+        await redis_client.aclose()
